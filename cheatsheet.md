@@ -611,3 +611,251 @@ db.stats()                             # Thống kê database
 mongodump --db <db> --out ./backup             # Backup
 mongorestore --db <db> ./backup/<db>           # Restore
 ```
+
+---
+
+## 📁 File, Quyền & User (Linux)
+
+### File & thư mục
+```bash
+ls -lah                                # Liệt kê chi tiết + ẩn + dung lượng dễ đọc
+find . -name "*.log"                    # Tìm file theo tên
+find . -type f -size +100M             # Tìm file > 100MB (ngốn disk)
+find . -mtime -1                       # File sửa trong 1 ngày qua
+find . -name "*.tmp" -delete           # Tìm và xóa
+find /var/log -name "*.log" -mtime +30 -delete   # Dọn log cũ > 30 ngày
+stat <file>                            # Thông tin chi tiết file
+file <file>                            # Xác định loại file
+readlink -f <file>                     # Đường dẫn thật của symlink
+ln -s <target> <link>                  # Tạo symbolic link
+watch -n 2 'ls -la'                    # Chạy lặp lệnh mỗi 2 giây (theo dõi)
+```
+
+### Quyền (permission) & Sở hữu (ownership)
+```bash
+chmod +x script.sh                     # Cấp quyền thực thi
+chmod 755 file                         # rwxr-xr-x (chủ full, còn lại đọc+chạy)
+chmod 644 file                         # rw-r--r-- (chủ đọc/ghi, còn lại đọc)
+chmod -R 755 <dir>                     # Đệ quy cả thư mục
+chown user:group file                  # Đổi chủ sở hữu
+chown -R user:group <dir>              # Đệ quy
+chgrp group file                       # Đổi nhóm
+umask                                  # Xem quyền mặc định khi tạo file
+sudo <command>                         # Chạy với quyền root
+sudo -i                                # Mở shell root
+sudo su - <user>                       # Chuyển sang user khác
+sudo !!                                # Chạy lại lệnh trước với sudo
+```
+
+### User & Nhóm
+```bash
+whoami                                 # User hiện tại
+id                                     # UID, GID, nhóm
+groups                                 # Các nhóm của user
+who / w                                # Ai đang đăng nhập
+last                                   # Lịch sử đăng nhập
+useradd <user> / userdel <user>        # Thêm / xóa user
+passwd <user>                          # Đổi mật khẩu
+usermod -aG <group> <user>             # Thêm user vào nhóm
+```
+
+---
+
+## 🔐 SSH & Truyền file (transfer)
+
+### SSH
+```bash
+ssh user@host                          # Kết nối SSH
+ssh -p 2222 user@host                  # Chỉ định port
+ssh -i key.pem user@host               # Dùng private key
+ssh -v user@host                       # Verbose (debug lỗi kết nối)
+ssh user@host "df -h"                  # Chạy 1 lệnh từ xa rồi thoát
+ssh -L 8080:localhost:80 user@host     # Local port forward (tunnel)
+ssh -D 1080 user@host                  # SOCKS proxy
+ssh-keygen -t ed25519                  # Tạo cặp SSH key
+ssh-copy-id user@host                  # Copy public key lên server (login không mật khẩu)
+cat ~/.ssh/config                      # Cấu hình SSH (Host, HostName, User...)
+```
+
+### Truyền file
+```bash
+scp file.txt user@host:/path           # Copy file lên server
+scp user@host:/path/file.txt ./        # Tải file về
+scp -r <dir> user@host:/path           # Copy cả thư mục
+rsync -avz <src> user@host:/dest       # Đồng bộ (nhanh, chỉ gửi phần khác)
+rsync -avz --delete <src> <dest>       # Đồng bộ + xóa file thừa ở đích
+rsync -avz --progress <src> <dest>     # Hiện tiến trình
+rsync -avz -e "ssh -p 2222" <src> <dest>   # Rsync qua SSH port tùy chỉnh
+```
+
+### Nén & giải nén
+```bash
+tar -czvf archive.tar.gz <dir>         # Nén thư mục (gzip)
+tar -xzvf archive.tar.gz               # Giải nén
+tar -xzvf archive.tar.gz -C /dest      # Giải nén vào thư mục cụ thể
+tar -tzvf archive.tar.gz               # Xem nội dung không giải nén
+zip -r archive.zip <dir>               # Nén zip
+unzip archive.zip                      # Giải nén zip
+unzip -l archive.zip                   # Xem nội dung zip
+gzip file / gunzip file.gz             # Nén / giải nén 1 file
+```
+
+---
+
+## 🌐 HTTP, API & SSL/Certificate
+
+### curl - Test API (rất hay khi debug service)
+```bash
+curl <url>                             # GET request
+curl -I <url>                          # Chỉ lấy header
+curl -v <url>                          # Verbose (xem handshake, header đầy đủ)
+curl -L <url>                          # Follow redirect
+curl -X POST <url> -d '{"a":1}' -H "Content-Type: application/json"   # POST JSON
+curl -X POST <url> -H "Authorization: Bearer <token>"    # Kèm token
+curl -o file.zip <url>                 # Tải và lưu file
+curl -s <url> | jq                     # Lấy JSON rồi format đẹp
+curl -w "\nTime: %{time_total}s Code: %{http_code}\n" -o /dev/null -s <url>  # Đo thời gian + status
+curl -k <url>                          # Bỏ qua kiểm tra SSL (self-signed)
+curl --resolve host:443:1.2.3.4 https://host/   # Test IP cụ thể (bỏ qua DNS)
+wget <url>                             # Tải file
+wget -c <url>                          # Tải tiếp (resume)
+http GET <url>                         # HTTPie (dễ đọc hơn curl, nếu có cài)
+```
+
+### SSL / Certificate (check hết hạn, cấu hình)
+```bash
+# Xem cert của 1 domain (ngày hết hạn, issuer...)
+echo | openssl s_client -connect <host>:443 -servername <host> 2>/dev/null | openssl x509 -noout -dates
+openssl s_client -connect <host>:443 -servername <host>   # Xem full handshake
+openssl x509 -in cert.pem -text -noout # Đọc nội dung cert file
+openssl x509 -in cert.pem -noout -dates    # Chỉ xem ngày hiệu lực/hết hạn
+openssl verify -CAfile ca.crt cert.pem # Kiểm tra chuỗi cert
+curl -vI https://<host> 2>&1 | grep -i "expire"   # Xem hạn cert nhanh
+nmap --script ssl-cert -p 443 <host>   # Quét thông tin SSL
+```
+
+### DNS
+```bash
+dig <domain>                           # Tra DNS đầy đủ
+dig +short <domain>                    # Chỉ lấy IP
+dig <domain> MX / TXT / NS             # Tra bản ghi cụ thể
+dig @8.8.8.8 <domain>                  # Hỏi DNS server cụ thể
+host <domain>                          # Tra nhanh
+nslookup <domain>
+whois <domain>                         # Thông tin đăng ký domain
+```
+
+---
+
+## 🧰 Công cụ xử lý JSON/YAML & môi trường
+
+### jq - Xử lý JSON (cực hữu ích cho DevOps)
+```bash
+cat data.json | jq                     # Format đẹp (pretty print)
+jq '.name' data.json                   # Lấy field name
+jq '.items[]' data.json                # Duyệt mảng
+jq '.items[].id' data.json             # Lấy id của từng phần tử
+jq '.items | length' data.json         # Đếm số phần tử
+jq -r '.name' data.json                # Raw (bỏ dấu ngoặc kép)
+jq '.items[] | select(.status=="ok")' data.json   # Lọc theo điều kiện
+kubectl get pods -o json | jq '.items[].metadata.name'   # Kết hợp với kubectl
+curl -s <api> | jq '.data'             # Kết hợp với curl
+```
+
+### yq - Xử lý YAML (giống jq nhưng cho YAML)
+```bash
+yq '.version' config.yaml              # Lấy field
+yq -i '.image.tag = "1.2.3"' values.yaml   # Sửa file tại chỗ (hay khi CI/CD)
+yq eval '.services | keys' docker-compose.yml   # Lấy danh sách service
+yq -o=json config.yaml                 # Convert YAML sang JSON
+```
+
+### Biến môi trường (Environment variables)
+```bash
+env                                    # Liệt kê tất cả biến môi trường
+printenv <VAR>                         # In 1 biến
+echo $PATH                             # Xem biến PATH
+export KEY=value                       # Set biến cho session hiện tại
+export PATH=$PATH:/new/path            # Thêm vào PATH
+unset KEY                              # Xóa biến
+set -a; source .env; set +a            # Nạp toàn bộ file .env vào môi trường
+KEY=value command                      # Set biến chỉ cho 1 lệnh
+```
+
+### Cron - Lập lịch chạy tự động
+```bash
+crontab -l                             # Xem lịch cron hiện tại
+crontab -e                             # Sửa lịch cron
+crontab -r                             # Xóa toàn bộ cron
+# Cú pháp: phút giờ ngày tháng thứ  lệnh
+# 0 2 * * *  /path/backup.sh           # Chạy 2h sáng mỗi ngày
+# */5 * * * * /path/check.sh           # Mỗi 5 phút
+systemctl list-timers                  # Xem systemd timer (thay thế cron)
+```
+
+---
+
+## 🏗️ IaC & CI/CD (Terraform / Ansible)
+
+### Terraform
+```bash
+terraform init                         # Khởi tạo (tải provider)
+terraform plan                         # Xem trước thay đổi (không apply)
+terraform apply                        # Áp dụng thay đổi
+terraform apply -auto-approve          # Áp dụng không hỏi xác nhận
+terraform destroy                      # Xóa toàn bộ resource
+terraform validate                     # Kiểm tra cú pháp
+terraform fmt                          # Format code
+terraform state list                   # Liệt kê resource trong state
+terraform show                         # Xem state hiện tại
+terraform output                       # Xem output values
+terraform plan -out=tf.plan            # Lưu plan ra file
+```
+
+### Ansible
+```bash
+ansible all -m ping                    # Kiểm tra kết nối tới tất cả host
+ansible-playbook site.yml              # Chạy playbook
+ansible-playbook site.yml --check      # Dry-run (không thay đổi thật)
+ansible-playbook site.yml -i inventory # Chỉ định inventory
+ansible-playbook site.yml --limit web  # Chỉ chạy trên nhóm web
+ansible-playbook site.yml -vvv         # Verbose (debug)
+ansible-vault encrypt secrets.yml      # Mã hóa file secret
+ansible all -m shell -a "df -h"        # Chạy lệnh shell trên tất cả host
+```
+
+---
+
+## 📦 Package Managers (Node / Python)
+
+### npm / yarn / pnpm
+```bash
+npm install                            # Cài dependency theo package.json
+npm install <pkg>                      # Cài 1 package
+npm install -g <pkg>                   # Cài global
+npm ci                                 # Cài sạch theo lock (dùng trong CI)
+npm run <script>                       # Chạy script trong package.json
+npm run build                          # Build project
+npm outdated                           # Xem package cũ
+npm audit / npm audit fix              # Kiểm tra & sửa lỗ hổng bảo mật
+npm cache clean --force                # Xóa cache khi lỗi lạ
+rm -rf node_modules package-lock.json && npm install   # Cài lại sạch (fix lỗi)
+
+yarn / yarn install                    # Cài dependency
+yarn add <pkg>                         # Thêm package
+yarn <script>                          # Chạy script
+
+pnpm install / pnpm add <pkg>          # Tương tự nhưng nhanh & tiết kiệm disk
+```
+
+### Python (pip / venv)
+```bash
+python -m venv venv                    # Tạo môi trường ảo
+source venv/bin/activate               # Kích hoạt (Linux/Mac)
+pip install <pkg>                      # Cài package
+pip install -r requirements.txt        # Cài theo file
+pip freeze > requirements.txt          # Lưu danh sách package
+pip list                               # Liệt kê package đã cài
+pip install --upgrade <pkg>            # Nâng cấp
+deactivate                             # Thoát venv
+```
