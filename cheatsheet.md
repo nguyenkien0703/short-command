@@ -978,3 +978,111 @@ rabbitmqctl purge_queue <queue>        # Xóa sạch message trong queue
 rabbitmq-plugins enable rabbitmq_management   # Bật UI quản lý (cổng 15672)
 ```
 
+---
+
+## 🔀 Nginx & Reverse Proxy
+
+```bash
+nginx -t                               # Kiểm tra cú pháp config (LUÔN chạy trước khi reload)
+nginx -T                               # In toàn bộ config đã merge
+nginx -s reload                        # Reload config (không downtime)
+nginx -s stop / quit                   # Dừng
+systemctl restart nginx                # Restart qua systemd
+nginx -V                               # Xem version + module đã build
+
+# File config hay gặp
+# /etc/nginx/nginx.conf                 -> config chính
+# /etc/nginx/sites-enabled/             -> các site đang bật
+# /etc/nginx/conf.d/                    -> config bổ sung
+
+# Xem log (troubleshoot 502/504/404)
+tail -f /var/log/nginx/access.log      # Log truy cập
+tail -f /var/log/nginx/error.log       # Log lỗi (quan trọng nhất khi debug)
+grep " 502 " /var/log/nginx/access.log # Lọc request bị 502
+awk '{print $9}' access.log | sort | uniq -c | sort -rn   # Đếm theo status code
+awk '{print $7}' access.log | sort | uniq -c | sort -rn | head   # Top URL bị gọi
+
+# Ý nghĩa lỗi hay gặp:
+# 502 Bad Gateway     -> backend chết / sai upstream / sai port
+# 504 Gateway Timeout -> backend phản hồi chậm (tăng proxy_read_timeout)
+# 413 Too Large       -> tăng client_max_body_size
+# 499                 -> client tự ngắt kết nối
+```
+
+---
+
+## 🛡️ Firewall (iptables / ufw / firewalld)
+
+### ufw (Ubuntu - đơn giản)
+```bash
+ufw status                             # Trạng thái + rule
+ufw status verbose                     # Chi tiết hơn
+ufw enable / disable                   # Bật / tắt firewall
+ufw allow 80/tcp                       # Mở port 80
+ufw allow from 1.2.3.4                 # Cho phép 1 IP
+ufw allow from 1.2.3.4 to any port 22  # Cho IP truy cập port 22
+ufw deny 3306                          # Chặn port
+ufw delete allow 80                    # Xóa rule
+```
+
+### iptables (chi tiết, thấp cấp hơn)
+```bash
+iptables -L -n -v                      # Liệt kê rule (kèm số gói tin)
+iptables -L -n --line-numbers          # Kèm số thứ tự rule
+iptables -A INPUT -p tcp --dport 80 -j ACCEPT   # Mở port 80
+iptables -A INPUT -s 1.2.3.4 -j DROP   # Chặn 1 IP
+iptables -D INPUT <line-number>        # Xóa rule theo số dòng
+iptables -F                            # Xóa toàn bộ rule (cẩn thận mất SSH!)
+iptables-save > rules.v4               # Lưu rule
+iptables-restore < rules.v4            # Khôi phục rule
+```
+
+### firewalld (RHEL/CentOS)
+```bash
+firewall-cmd --state                   # Trạng thái
+firewall-cmd --list-all                # Liệt kê rule
+firewall-cmd --add-port=80/tcp --permanent   # Mở port (lưu vĩnh viễn)
+firewall-cmd --reload                  # Áp dụng thay đổi
+```
+
+---
+
+## ⚡ Performance Profiling & Debug sâu
+
+### Theo dõi tài nguyên chi tiết
+```bash
+iostat -x 1                            # Thống kê I/O đĩa mỗi giây (tìm bottleneck disk)
+mpstat -P ALL 1                        # CPU từng core mỗi giây
+sar -u 1 5                             # Lịch sử CPU (5 mẫu, mỗi giây)
+sar -r 1 5                             # Lịch sử RAM
+pidstat 1                              # Thống kê tài nguyên theo process
+iotop                                  # Process nào đọc/ghi disk nhiều (cần root)
+nethogs                                # Process nào dùng nhiều băng thông mạng
+dstat                                  # Tổng hợp CPU/disk/net/memory 1 màn hình
+```
+
+### Debug process ở mức system call
+```bash
+strace -p <PID>                        # Theo dõi syscall của process đang chạy
+strace -f -e trace=network <cmd>       # Chỉ trace syscall mạng
+strace -c <cmd>                        # Thống kê syscall (tìm cái gọi nhiều)
+ltrace <cmd>                           # Theo dõi lời gọi thư viện
+lsof -p <PID>                          # File/socket mà process đang mở
+cat /proc/<PID>/status                 # Trạng thái chi tiết process
+cat /proc/<PID>/limits                 # Giới hạn (ulimit) của process
+ulimit -a                              # Xem giới hạn hiện tại (file descriptor...)
+perf top                               # Hàm nào ngốn CPU nhất (realtime)
+perf record -p <PID> / perf report     # Ghi & phân tích profile CPU
+```
+
+### Kiểm tra kết nối & OOM
+```bash
+ss -s                                  # Tổng hợp số kết nối theo trạng thái
+ss -tan state established | wc -l      # Đếm kết nối ESTABLISHED
+ss -tan state time-wait | wc -l        # Đếm TIME_WAIT (nhiều = vấn đề)
+dmesg -T | grep -i "killed process"    # Kiểm tra process bị OOM killer giết
+grep -i oom /var/log/syslog            # Log OOM (Ubuntu)
+cat /proc/loadavg                      # Load average
+```
+
+
