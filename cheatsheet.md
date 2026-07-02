@@ -433,3 +433,181 @@ kubectl logs --previous <pod>          # Log lần chạy trước khi pod crash
 kubectl get events --sort-by=.metadata.creationTimestamp   # Events toàn cluster
 kubectl top pods                       # Pod nào ăn nhiều CPU/RAM
 ```
+
+---
+
+## 🌿 Git - Troubleshooting & lệnh hay dùng
+
+### Xem trạng thái & lịch sử
+```bash
+git status                             # Trạng thái working tree
+git log --oneline --graph --decorate --all   # Xem lịch sử dạng cây (đẹp)
+git log -p <file>                      # Lịch sử thay đổi 1 file kèm diff
+git log --author="ten"                 # Commit của 1 người
+git show <commit>                      # Chi tiết 1 commit
+git diff                               # Thay đổi chưa staged
+git diff --staged                      # Thay đổi đã staged
+git diff main..feature                 # So sánh 2 branch
+git blame <file>                       # Ai sửa dòng nào (rất hay khi truy lỗi)
+git reflog                             # Lịch sử MỌI thao tác HEAD (cứu tinh khi lỡ tay)
+```
+
+### Undo / Reset - Sửa sai (hay cần khi có sự cố)
+```bash
+git restore <file>                     # Bỏ thay đổi chưa staged của file
+git restore --staged <file>            # Bỏ staged (unstage), giữ thay đổi
+git checkout -- <file>                 # (bản cũ) khôi phục file về HEAD
+git reset --soft HEAD~1                # Bỏ commit cuối, GIỮ thay đổi (đã staged)
+git reset HEAD~1                       # Bỏ commit cuối, giữ thay đổi (unstaged)
+git reset --hard HEAD~1                # Bỏ commit cuối + XÓA thay đổi (cẩn thận!)
+git reset --hard origin/main           # Ép branch về đúng như remote (mất local!)
+git revert <commit>                    # Tạo commit mới đảo ngược 1 commit (an toàn)
+git commit --amend                     # Sửa commit cuối (nội dung/message)
+git commit --amend --no-edit           # Thêm file vào commit cuối, giữ message
+git clean -fd                          # Xóa file/thư mục chưa track (cẩn thận!)
+git clean -nd                          # Xem trước sẽ xóa gì (dry-run)
+```
+
+### Xử lý conflict khi merge/rebase
+```bash
+git merge <branch>                     # Merge branch vào branch hiện tại
+git rebase main                        # Rebase branch hiện tại lên main
+# Khi bị conflict:
+git status                             # Xem file nào conflict
+# ... sửa file, xóa dấu <<<<<<< ======= >>>>>>> ...
+git add <file>                         # Đánh dấu đã giải quyết
+git rebase --continue                  # Tiếp tục rebase
+git merge --continue                   # Tiếp tục merge
+git rebase --abort                     # Hủy rebase, quay về trạng thái cũ
+git merge --abort                      # Hủy merge
+git checkout --theirs <file>           # Lấy bản của branch được merge vào
+git checkout --ours <file>             # Lấy bản của branch hiện tại
+```
+
+### Branch & Stash
+```bash
+git branch                             # Liệt kê branch
+git branch -a                          # Cả branch remote
+git checkout -b <branch>               # Tạo và chuyển sang branch mới
+git branch -D <branch>                 # Xóa branch (cưỡng bức)
+git branch -m <new-name>               # Đổi tên branch hiện tại
+git stash                              # Cất tạm thay đổi (để chuyển branch)
+git stash list                         # Liệt kê stash
+git stash pop                          # Lấy lại + xóa stash mới nhất
+git stash apply                        # Lấy lại nhưng giữ stash
+git stash drop                         # Xóa stash
+git cherry-pick <commit>               # Lấy 1 commit từ branch khác về
+git fetch origin                       # Tải cập nhật từ remote (không merge)
+git pull --rebase origin main          # Pull kiểu rebase (lịch sử sạch hơn)
+git push --force-with-lease            # Force push an toàn (không đè của người khác)
+git remote -v                          # Xem URL remote
+```
+
+### Tình huống hay gặp
+```bash
+git commit --allow-empty -m "trigger CI"   # Commit rỗng để trigger CI/CD
+git rm --cached <file>                 # Bỏ file khỏi git nhưng giữ trên disk
+git log --oneline | head               # Xem nhanh vài commit gần nhất
+git reflog                             # Tìm lại commit "mất" sau reset --hard
+git reset --hard <commit-tu-reflog>    # Khôi phục về commit đã lỡ xóa
+```
+
+---
+
+## 🗄️ Database
+
+### PostgreSQL (psql)
+```bash
+psql -U <user> -d <database>           # Kết nối vào database
+psql -h <host> -p 5432 -U <user> -d <db>   # Kết nối remote
+psql -U user -d db -c "SELECT 1;"      # Chạy 1 câu lệnh rồi thoát
+
+# Trong psql:
+\l                                     # Liệt kê database
+\c <database>                          # Chuyển database
+\dt                                    # Liệt kê bảng
+\d <table>                             # Mô tả cấu trúc bảng
+\du                                    # Liệt kê user/role
+\dn                                    # Liệt kê schema
+\x                                     # Bật/tắt hiển thị dọc (dễ đọc)
+\timing                                # Bật đo thời gian query
+\q                                     # Thoát
+
+# Backup & Restore
+pg_dump -U user -d db > backup.sql             # Backup database
+pg_dump -U user -d db -t <table> > tbl.sql     # Backup 1 bảng
+psql -U user -d db < backup.sql                # Restore
+pg_dump -U user -Fc db > backup.dump           # Backup dạng nén
+pg_restore -U user -d db backup.dump           # Restore từ dump nén
+
+# Troubleshoot (kết nối chậm/treo)
+# SELECT * FROM pg_stat_activity;              # Xem query đang chạy
+# SELECT pg_terminate_backend(<pid>);         # Kill 1 query treo
+```
+
+### MySQL / MariaDB
+```bash
+mysql -u <user> -p                     # Kết nối (sẽ hỏi password)
+mysql -h <host> -P 3306 -u user -p db  # Kết nối remote vào database
+
+# Trong mysql:
+SHOW DATABASES;                        # Liệt kê database
+USE <database>;                        # Chọn database
+SHOW TABLES;                           # Liệt kê bảng
+DESCRIBE <table>;                      # Mô tả bảng
+SHOW PROCESSLIST;                      # Xem query đang chạy (troubleshoot)
+KILL <id>;                             # Kill query treo
+SHOW STATUS;                           # Trạng thái server
+EXIT;                                  # Thoát
+
+# Backup & Restore
+mysqldump -u user -p db > backup.sql           # Backup database
+mysqldump -u user -p db table > table.sql      # Backup 1 bảng
+mysqldump -u user -p --all-databases > all.sql # Backup tất cả
+mysql -u user -p db < backup.sql               # Restore
+```
+
+### Redis (redis-cli)
+```bash
+redis-cli                              # Kết nối (mặc định localhost:6379)
+redis-cli -h <host> -p 6379 -a <pass>  # Kết nối remote có password
+
+# Trong redis-cli:
+PING                                   # Kiểm tra sống (trả PONG)
+KEYS *                                 # Liệt kê tất cả key (tránh dùng trên prod!)
+SCAN 0                                 # Duyệt key an toàn hơn KEYS
+GET <key>                              # Lấy giá trị
+SET <key> <value>                      # Gán giá trị
+DEL <key>                              # Xóa key
+TTL <key>                              # Thời gian sống còn lại của key
+EXPIRE <key> 60                        # Đặt hết hạn 60 giây
+TYPE <key>                             # Kiểu dữ liệu của key
+INFO                                   # Thông tin server (memory, clients...)
+INFO memory                            # Thông tin RAM đang dùng
+DBSIZE                                 # Số lượng key
+FLUSHDB                                # Xóa toàn bộ DB hiện tại (cẩn thận!)
+MONITOR                                # Xem mọi lệnh realtime (debug)
+CLIENT LIST                            # Danh sách client đang kết nối
+```
+
+### MongoDB (mongosh)
+```bash
+mongosh                                # Kết nối local
+mongosh "mongodb://user:pass@host:27017/db"    # Kết nối remote
+
+# Trong mongosh:
+show dbs                               # Liệt kê database
+use <database>                         # Chọn database
+show collections                       # Liệt kê collection
+db.<coll>.find()                       # Truy vấn tất cả
+db.<coll>.find({name: "abc"})          # Truy vấn có điều kiện
+db.<coll>.countDocuments()             # Đếm document
+db.<coll>.insertOne({...})             # Thêm 1 document
+db.<coll>.deleteOne({...})             # Xóa
+db.currentOp()                         # Xem thao tác đang chạy (troubleshoot)
+db.stats()                             # Thống kê database
+
+# Backup & Restore
+mongodump --db <db> --out ./backup             # Backup
+mongorestore --db <db> ./backup/<db>           # Restore
+```
