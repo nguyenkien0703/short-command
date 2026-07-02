@@ -859,3 +859,122 @@ pip list                               # Liệt kê package đã cài
 pip install --upgrade <pkg>            # Nâng cấp
 deactivate                             # Thoát venv
 ```
+
+---
+
+## ☁️ Cloud CLI (AWS / GCP / Azure)
+
+### AWS CLI
+```bash
+aws configure                          # Cấu hình credential + region
+aws sts get-caller-identity            # Kiểm tra đang login bằng account nào
+aws s3 ls                              # Liệt kê bucket
+aws s3 ls s3://<bucket>/               # Liệt kê nội dung bucket
+aws s3 cp file s3://<bucket>/          # Upload file
+aws s3 cp s3://<bucket>/file ./        # Download file
+aws s3 sync ./dir s3://<bucket>/       # Đồng bộ thư mục lên S3
+aws ec2 describe-instances             # Liệt kê EC2 instance
+aws ec2 describe-instances --filters "Name=instance-state-name,Values=running"   # Chỉ instance đang chạy
+aws ec2 start-instances --instance-ids <id>    # Bật instance
+aws ec2 stop-instances --instance-ids <id>     # Tắt instance
+aws logs tail <log-group> --follow     # Xem CloudWatch log realtime
+aws ecr get-login-password | docker login --username AWS --password-stdin <ecr-url>   # Login ECR
+aws eks update-kubeconfig --name <cluster>     # Lấy kubeconfig cho EKS
+aws ecs list-services --cluster <name>         # Liệt kê ECS service
+aws --profile <profile> <command>      # Dùng profile khác
+```
+
+### Google Cloud (gcloud)
+```bash
+gcloud auth login                      # Đăng nhập
+gcloud config set project <project>    # Chọn project
+gcloud config list                     # Xem cấu hình hiện tại
+gcloud compute instances list          # Liệt kê VM
+gcloud compute ssh <instance>          # SSH vào VM
+gcloud container clusters get-credentials <cluster> --region <r>   # Kubeconfig cho GKE
+gcloud container clusters list         # Liệt kê GKE cluster
+gcloud projects list                   # Liệt kê project
+gcloud logging read "severity>=ERROR" --limit 20   # Đọc log lỗi
+gcloud auth configure-docker           # Cấu hình Docker để push lên GCR/Artifact Registry
+```
+
+### Azure CLI (az)
+```bash
+az login                               # Đăng nhập
+az account show                        # Xem subscription hiện tại
+az account set --subscription <id>     # Chọn subscription
+az vm list -o table                    # Liệt kê VM
+az vm start --name <vm> -g <rg>        # Bật VM
+az aks get-credentials --name <cluster> -g <rg>   # Kubeconfig cho AKS
+az acr login --name <registry>         # Login Azure Container Registry
+az group list -o table                 # Liệt kê resource group
+```
+
+---
+
+## 📊 Monitoring & Observability
+
+### Prometheus / PromQL (query metric)
+```bash
+# Truy vấn qua HTTP API
+curl -s 'http://localhost:9090/api/v1/query?query=up' | jq         # Service nào đang up
+curl -s 'http://localhost:9090/api/v1/targets' | jq '.data.activeTargets[].health'   # Sức khỏe target
+
+# PromQL hay dùng (gõ trong Prometheus UI hoặc Grafana):
+# up                                     -> service sống/chết (1/0)
+# rate(http_requests_total[5m])          -> tốc độ request/giây
+# sum(rate(http_requests_total[5m])) by (status)   -> request theo status code
+# histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))  -> p95 latency
+# node_memory_MemAvailable_bytes         -> RAM còn trống
+# 100 - (avg by(instance)(rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)  -> % CPU dùng
+# rate(container_cpu_usage_seconds_total[5m])   -> CPU container
+```
+
+### Xem metric endpoint & health check
+```bash
+curl -s localhost:8080/metrics         # Metric dạng Prometheus của app
+curl -s localhost:8080/health          # Health check endpoint
+curl -s localhost:8080/actuator/health # Spring Boot health
+watch -n 2 'curl -s localhost:8080/health'   # Theo dõi health mỗi 2s
+```
+
+### Grafana / Loki / cAdvisor (tham khảo)
+```bash
+# Grafana:   thường ở http://localhost:3000 (admin/admin)
+# Loki:      LogQL để query log, ví dụ: {app="myapp"} |= "error"
+logcli query '{app="myapp"} |= "error"'   # Query Loki bằng CLI (nếu có logcli)
+# cAdvisor:  http://localhost:8080 -> xem metric container realtime
+```
+
+---
+
+## 📨 Message Queue (Kafka / RabbitMQ)
+
+### Kafka
+```bash
+# Topic
+kafka-topics.sh --bootstrap-server localhost:9092 --list                      # Liệt kê topic
+kafka-topics.sh --bootstrap-server localhost:9092 --describe --topic <t>       # Chi tiết topic
+kafka-topics.sh --bootstrap-server localhost:9092 --create --topic <t> --partitions 3 --replication-factor 1   # Tạo topic
+
+# Producer / Consumer (test message)
+kafka-console-producer.sh --bootstrap-server localhost:9092 --topic <t>        # Gửi message
+kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic <t> --from-beginning   # Đọc từ đầu
+
+# Consumer group (troubleshoot lag)
+kafka-consumer-groups.sh --bootstrap-server localhost:9092 --list              # Liệt kê group
+kafka-consumer-groups.sh --bootstrap-server localhost:9092 --describe --group <g>   # Xem LAG (rất quan trọng)
+```
+
+### RabbitMQ
+```bash
+rabbitmqctl status                     # Trạng thái node
+rabbitmqctl list_queues                # Liệt kê queue + số message
+rabbitmqctl list_queues name messages consumers   # Queue nào tồn message (troubleshoot)
+rabbitmqctl list_exchanges             # Liệt kê exchange
+rabbitmqctl list_connections           # Kết nối đang mở
+rabbitmqctl list_consumers             # Danh sách consumer
+rabbitmqctl purge_queue <queue>        # Xóa sạch message trong queue
+rabbitmq-plugins enable rabbitmq_management   # Bật UI quản lý (cổng 15672)
+```
+
