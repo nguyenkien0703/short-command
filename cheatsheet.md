@@ -301,3 +301,135 @@ alias kex='kubectl exec -it'
 alias kns='kubectl config set-context --current --namespace'
 alias kctx='kubectl config use-context'
 ```
+
+---
+
+## 🔍 grep & Xử lý text (log filtering)
+
+### grep - Tìm kiếm trong text/log
+```bash
+grep "error" file.log                  # Tìm dòng chứa "error"
+grep -i "error" file.log               # Không phân biệt hoa/thường (ignore case)
+grep -v "debug" file.log               # Đảo ngược: dòng KHÔNG chứa "debug"
+grep -n "error" file.log               # Kèm số dòng
+grep -c "error" file.log               # Đếm số dòng khớp
+grep -r "TODO" .                       # Tìm đệ quy trong thư mục
+grep -w "id" file.log                  # Khớp đúng cả từ (whole word)
+grep -l "error" *.log                  # Chỉ in tên file có khớp
+grep -o "user_[0-9]*" file.log         # Chỉ in phần khớp, không cả dòng
+
+# -E: dùng regex mở rộng (extended), hay đi cùng -i
+grep -iE "error|fail|exception" app.log        # Tìm nhiều từ (OR) không phân biệt hoa thường
+grep -iE "timeout|refused|reset" app.log       # Lọc lỗi network
+grep -E "[0-9]{3}" access.log                  # Regex: 3 chữ số liền nhau
+
+# -A / -B / -C: xem context quanh dòng khớp (rất hay khi debug)
+grep -A 6 "Exception" app.log          # 6 dòng SAU (After) dòng khớp
+grep -B 3 "Exception" app.log          # 3 dòng TRƯỚC (Before)
+grep -C 5 "Exception" app.log          # 5 dòng trước VÀ sau (Context)
+grep -A 10 -i "traceback" app.log      # Xem 10 dòng stack trace sau lỗi
+
+# Kết hợp với các lệnh khác qua pipe
+docker logs app 2>&1 | grep -iE "error|fatal"          # Lọc log docker
+kubectl logs pod 2>&1 | grep -A 6 -i "exception"       # Lọc log k8s + context
+tail -f app.log | grep --line-buffered -iE "error"     # Lọc log realtime
+ps aux | grep -i nginx                                 # Tìm process
+grep -riE "password|secret|token" .                    # Rà tìm secret bị lộ
+```
+
+### Các công cụ text khác hay dùng khi troubleshoot
+```bash
+tail -f app.log                        # Theo dõi log realtime
+tail -n 100 app.log                    # 100 dòng cuối
+head -n 50 app.log                     # 50 dòng đầu
+less app.log                           # Xem file phân trang (/ để tìm, G xuống cuối)
+wc -l app.log                          # Đếm số dòng
+sort file.txt | uniq -c | sort -nr     # Đếm & sắp xếp theo tần suất (top lỗi)
+awk '{print $1}' access.log | sort | uniq -c | sort -nr   # Top IP truy cập
+awk '/error/ {print $0}' app.log       # Lọc bằng awk
+sed -n '100,200p' app.log              # In dòng 100 đến 200
+cut -d',' -f1,3 data.csv               # Cắt cột theo dấu phân cách
+cat app.log | grep error | wc -l       # Đếm số lỗi
+```
+
+---
+
+## 🚑 Troubleshooting sự cố (Linux)
+
+### Process & Tài nguyên (CPU / RAM)
+```bash
+top                                    # Xem process realtime (CPU, RAM)
+htop                                   # Bản đẹp hơn top (nếu có cài)
+ps aux                                 # Liệt kê tất cả process
+ps aux --sort=-%cpu | head            # Top process ăn CPU
+ps aux --sort=-%mem | head            # Top process ăn RAM
+ps -ef | grep <name>                   # Tìm process theo tên
+pgrep -f <name>                        # Lấy PID theo tên
+kill <PID>                             # Dừng process (gửi SIGTERM)
+kill -9 <PID>                          # Dừng cưỡng bức (SIGKILL)
+pkill -f <name>                        # Kill theo tên
+free -h                                # Xem RAM/swap (dạng dễ đọc)
+uptime                                 # Tải hệ thống (load average)
+vmstat 1                               # Thống kê CPU/memory/IO mỗi giây
+nproc                                  # Số CPU core
+```
+
+### Ổ đĩa (Disk)
+```bash
+df -h                                  # Dung lượng ổ đĩa còn trống
+du -sh *                               # Kích thước từng thư mục/file
+du -sh * | sort -rh | head             # Top thư mục nặng nhất
+du -ah . | sort -rh | head -20         # Top file nặng nhất
+lsof | grep deleted                    # File đã xóa nhưng process còn giữ (ngốn disk)
+ncdu                                   # Duyệt dung lượng tương tác (nếu có cài)
+```
+
+### Network
+```bash
+ping <host>                            # Kiểm tra kết nối
+curl -I <url>                          # Chỉ lấy HTTP header
+curl -v <url>                          # Verbose (xem chi tiết handshake)
+curl -w "%{http_code}" -o /dev/null -s <url>   # Chỉ lấy status code
+ss -tulpn                              # Liệt kê port đang lắng nghe (thay netstat)
+netstat -tulpn                         # (bản cũ) port đang mở
+lsof -i :8080                          # Ai đang chiếm port 8080
+lsof -iTCP -sTCP:LISTEN -P -n          # Tất cả port đang LISTEN
+nslookup <domain>                      # Tra DNS
+dig <domain>                           # Tra DNS chi tiết
+traceroute <host>                      # Truy vết đường đi mạng
+telnet <host> <port>                   # Test kết nối tới port
+nc -zv <host> <port>                   # Test port bằng netcat (nhanh)
+ip a                                   # Xem địa chỉ IP các interface
+curl ifconfig.me                       # Xem IP public
+tcpdump -i any port 80                 # Bắt gói tin (cần quyền root)
+```
+
+### Log hệ thống & Service (systemd)
+```bash
+journalctl -u <service>                # Log của 1 service
+journalctl -u <service> -f             # Theo dõi realtime
+journalctl -u <service> --since "10 min ago"   # Log gần đây
+journalctl -xe                         # Log lỗi gần nhất (hay dùng khi service fail)
+journalctl -p err -b                   # Chỉ log lỗi trong lần boot này
+systemctl status <service>             # Trạng thái service
+systemctl restart <service>            # Restart service
+systemctl start / stop <service>       # Bật / tắt
+systemctl enable / disable <service>   # Tự chạy khi boot / tắt
+dmesg | tail                           # Log kernel (lỗi phần cứng, OOM...)
+dmesg | grep -i "out of memory"        # Kiểm tra bị OOM kill
+```
+
+### Troubleshoot Docker / Kubernetes
+```bash
+docker stats                           # CPU/RAM realtime của container
+docker inspect <container>             # Xem chi tiết cấu hình
+docker logs --tail 200 <container>     # 200 dòng log cuối
+docker events                          # Theo dõi sự kiện docker realtime
+docker system df                       # Xem docker dùng bao nhiêu disk
+
+kubectl get pods                       # Kiểm tra pod nào lỗi (CrashLoopBackOff...)
+kubectl describe pod <pod>             # Xem Events để biết lý do lỗi (rất quan trọng)
+kubectl logs --previous <pod>          # Log lần chạy trước khi pod crash
+kubectl get events --sort-by=.metadata.creationTimestamp   # Events toàn cluster
+kubectl top pods                       # Pod nào ăn nhiều CPU/RAM
+```
