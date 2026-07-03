@@ -4,6 +4,9 @@
 > cách **chẩn đoán → xử lý ngay → nguyên nhân gốc → giải pháp lâu dài (để không tái diễn)**.
 > Mục tiêu: đủ để bạn **own toàn bộ vòng đời cluster** — xây dựng, triển khai, vận hành,
 > và trở thành trụ cột/DevOps Lead.
+>
+> 🧩 **Đi kèm:** [`k8s-production-templates.md`](./k8s-production-templates.md) — YAML production-ready
+> (copy-paste được) và runbook từng bước (etcd/Velero restore, bảo trì node, rollback khẩn cấp).
 
 ## 📑 Mục lục
 
