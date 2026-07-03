@@ -4,9 +4,10 @@
 > **DevOps cho dự án AI** (như bạn). Đọc để chọn hướng có chủ đích.
 
 ## 📂 Trong folder này
+- [mlops.md](./mlops.md) — Vận hành hệ thống ML/AI (gần bạn nhất)
 - [sre.md](./sre.md) — Site Reliability Engineering (độ tin cậy ở quy mô)
 - [devsecops.md](./devsecops.md) — Bảo mật dịch chuyển vào toàn vòng đời
-- [mlops.md](./mlops.md) — Vận hành hệ thống ML/AI (gần bạn nhất)
+- **[roadmap-ai-platform-engineer.md](./roadmap-ai-platform-engineer.md)** — 🎯 **Lộ trình phân lớp** MLOps→SRE→DevSecOps + LLMOps vs MLOps (bắt đầu ở đây để định hình)
 
 ## So sánh nhanh 3 hướng
 
