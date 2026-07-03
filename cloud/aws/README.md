@@ -17,6 +17,8 @@
 | [05-security-iam.md](./05-security-iam.md) | IAM sâu, KMS, Secrets, WAF/Shield, GuardDuty, Org/SCP | Tất cả, SAP |
 | [06-management-devops.md](./06-management-devops.md) | CloudWatch, CloudTrail, Config, CloudFormation, Code* CI/CD, SSM | SysOps, DevOps |
 | [07-architecture-patterns.md](./07-architecture-patterns.md) | Use case & kiến trúc mẫu, Well-Architected sâu, DR, cost | SAA, SAP |
+| [labs/cidr-subnetting-deep-dive.md](./labs/cidr-subnetting-deep-dive.md) | **Lab CIDR/subnetting** — toán nhị phân, chia subnet, thiết kế VPC (có bài + lời giải) | SAA, SysOps |
+| [practice-questions.md](./practice-questions.md) | **Câu hỏi luyện thi kiểu đề thật** có giải thích, theo domain | Tất cả |
 | [cert-roadmap.md](./cert-roadmap.md) | Lộ trình ôn từng cert, domain, chiến lược thi | Tất cả |
 
 ## 🎯 Thứ tự học đề xuất
