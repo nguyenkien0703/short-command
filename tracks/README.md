@@ -11,6 +11,8 @@
 - [ml-serving-k8s.md](./ml-serving-k8s.md) — 🔧 Kỹ thuật: **serving ML trên K8s (KServe/GPU)** — thế mạnh khác biệt của bạn
 - [llmops-end-to-end.md](./llmops-end-to-end.md) — 🔧 Kỹ thuật: **LLMOps end-to-end** (RAG + vLLM + eval + guardrails)
 - [fine-tuning-lora.md](./fine-tuning-lora.md) — 🔧 Kỹ thuật: **Fine-tuning & LoRA/QLoRA** (khi nào dùng, GPU, multi-adapter serving)
+- [vector-db-scale.md](./vector-db-scale.md) — 🔧 Kỹ thuật: **Vector DB ở quy mô** (HNSW tuning, sharding, hybrid, latency/recall)
+- [ml-concepts-explained.md](./ml-concepts-explained.md) — 📖 **Phân biệt khái niệm ML** (train vs inference, fine-tune vs RAG, data types...) cho người từ infra
 
 ## So sánh nhanh 3 hướng
 
