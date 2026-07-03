@@ -37,6 +37,7 @@ Tổng hợp các câu lệnh hay dùng. Ghi chú bằng tiếng Việt để d�
 - [🌩️ Network debug sâu (tcpdump/mtr/tshark)](#️-network-debug-sâu-tcpdump--mtr--tshark)
 - [💾 Backup & Disaster Recovery (Velero/etcd)](#-backup--disaster-recovery-velero--etcd)
 - [📜 cert-manager (TLS tự động trên K8s)](#-cert-manager-tls-tự-động-trên-k8s)
+- [🎛️ Vận hành & Backup Cluster K8s (manifest/data/DR)](#️-vận-hành--backup-cluster-k8s-manifest--data--dr)
 
 ---
 
@@ -1569,6 +1570,133 @@ cmctl renew <name>                     # Ép gia hạn cert ngay
 # READY=False        -> xem describe certificate -> certificaterequest -> challenge
 # Challenge pending  -> thường do DNS/HTTP-01 chưa verify được (kiểm tra ingress/DNS)
 ```
+
+---
+
+## 🎛️ Vận hành & Backup Cluster K8s (manifest / data / DR)
+
+> Khi vận hành cluster production, có **3 thứ phải backup**: (1) **etcd** — trạng thái cluster,
+> (2) **Manifest/YAML** — cấu hình resource (nên để trong Git = GitOps), (3) **Dữ liệu Persistent Volume**.
+
+### 1. Backup Manifest / cấu hình resource (YAML)
+
+```bash
+# Xuất toàn bộ resource của 1 namespace ra file YAML
+kubectl get all -n <ns> -o yaml > backup-<ns>.yaml
+
+# Nhưng "get all" KHÔNG bao gồm hết. Backup đầy đủ hơn:
+for res in deploy sts ds svc cm secret ingress pvc hpa; do
+  kubectl get $res -n <ns> -o yaml > backup-<ns>-$res.yaml
+done
+
+# Backup TẤT CẢ resource của mọi namespace (dùng khi migrate/DR)
+for ns in $(kubectl get ns -o jsonpath='{.items[*].metadata.name}'); do
+  kubectl get all,cm,secret,ingress,pvc -n $ns -o yaml > backup-$ns.yaml
+done
+
+# Backup resource cấp cluster (không thuộc namespace)
+kubectl get pv,clusterrole,clusterrolebinding,storageclass,crd -o yaml > backup-cluster.yaml
+
+# Xuất sạch để commit vào Git (bỏ field runtime: status, uid, resourceVersion...)
+kubectl get deploy <name> -o yaml \
+  | kubectl neat > clean.yaml          # cần plugin "kubectl neat" (qua krew)
+```
+
+**Khuyến nghị (best practice):** Đừng backup YAML thủ công — hãy để **toàn bộ manifest trong Git**
+và deploy qua **ArgoCD/Flux (GitOps)**. Khi đó Git chính là bản backup manifest, dựng lại cluster
+chỉ cần trỏ ArgoCD vào repo là xong.
+
+```bash
+# Công cụ backup manifest tự động (kèm cả PV) — khuyên dùng cho production:
+velero backup create full-$(date +%F) --include-cluster-resources=true   # Backup cả manifest + volume
+velero backup create ns-backup --include-namespaces prod --snapshot-volumes   # Kèm snapshot PV
+```
+
+### 2. Backup Dữ liệu (Persistent Volume)
+
+```bash
+# Cách A: Velero + snapshot volume (tích hợp cloud provider - khuyên dùng)
+velero backup create data-$(date +%F) --snapshot-volumes --include-namespaces prod
+velero restore create --from-backup data-2026-07-03    # Khôi phục cả PV
+
+# Cách B: Backup thủ công dữ liệu trong pod (DB) ra ngoài
+kubectl exec -n prod <postgres-pod> -- pg_dump -U user db | gzip > db-$(date +%F).sql.gz
+kubectl exec -n prod <mysql-pod> -- mysqldump -u root -p$PW db | gzip > db-$(date +%F).sql.gz
+
+# Cách C: Copy dữ liệu từ PV ra ngoài
+kubectl cp prod/<pod>:/data ./pv-backup            # Copy thư mục data ra local
+# Rồi đẩy lên object storage:
+aws s3 cp db-$(date +%F).sql.gz s3://<bucket>/k8s-backups/
+
+# Snapshot PVC bằng VolumeSnapshot (CSI driver hỗ trợ)
+kubectl get volumesnapshot -n prod                 # Liệt kê snapshot
+# (tạo VolumeSnapshot bằng manifest có spec.source.persistentVolumeClaimName)
+```
+
+### 3. Backup etcd (trạng thái cluster - QUAN TRỌNG NHẤT)
+
+```bash
+# Chạy trên control-plane node. Nên đặt vào cron chạy định kỳ.
+ETCDCTL_API=3 etcdctl snapshot save /backup/etcd-$(date +%F-%H%M).db \
+  --endpoints=https://127.0.0.1:2379 \
+  --cacert=/etc/kubernetes/pki/etcd/ca.crt \
+  --cert=/etc/kubernetes/pki/etcd/server.crt \
+  --key=/etc/kubernetes/pki/etcd/server.key
+
+ETCDCTL_API=3 etcdctl snapshot status /backup/etcd-xxx.db --write-out=table   # Kiểm tra
+aws s3 cp /backup/etcd-*.db s3://<bucket>/etcd/      # Đẩy lên storage ngoài cluster!
+find /backup -name 'etcd-*.db' -mtime +14 -delete   # Giữ 14 ngày
+```
+
+### 4. Vận hành thường ngày (Day-2 Operations)
+
+```bash
+# --- Nâng cấp node an toàn (rolling) ---
+kubectl drain <node> --ignore-daemonsets --delete-emptydir-data   # 1. Đẩy pod ra
+# ... nâng cấp / vá lỗi node ...
+kubectl uncordon <node>                            # 2. Cho node nhận pod lại
+
+# --- Kiểm tra sức khỏe cluster ---
+kubectl get nodes                                  # Node Ready hết chưa
+kubectl get pods -A | grep -vE 'Running|Completed' # Pod nào KHÔNG khỏe
+kubectl top nodes && kubectl top pods -A           # Tài nguyên
+kubectl get componentstatuses                      # Trạng thái control plane
+kubectl get events -A --sort-by=.lastTimestamp | tail -30   # Sự kiện gần nhất
+
+# --- etcd bảo trì ---
+ETCDCTL_API=3 etcdctl endpoint health              # etcd còn khỏe không
+ETCDCTL_API=3 etcdctl endpoint status --write-out=table   # Kích thước DB, leader
+ETCDCTL_API=3 etcdctl defrag                       # Nén DB khi phình to (giảm dung lượng)
+
+# --- Chứng chỉ (cert control plane hết hạn là cluster chết) ---
+kubeadm certs check-expiration                     # Kiểm tra hạn cert
+kubeadm certs renew all                            # Gia hạn tất cả
+
+# --- Dọn dẹp ---
+kubectl delete pod --field-selector status.phase=Failed -A    # Xóa pod Failed
+kubectl delete pod --field-selector status.phase=Succeeded -A # Xóa pod đã xong
+```
+
+### 5. Quy trình khôi phục thảm họa (DR Runbook)
+
+```text
+Khi mất cluster / mất control plane:
+  1. Dựng lại control-plane node (kubeadm init hoặc theo IaC)
+  2. Khôi phục etcd từ snapshot:
+     etcdctl snapshot restore /backup/etcd-xxx.db --data-dir /var/lib/etcd-new
+     (trỏ static pod etcd vào data-dir mới, restart kubelet)
+  3. Kiểm tra: kubectl get nodes && kubectl get pods -A
+  4. Nếu KHÔNG có etcd backup nhưng có manifest trong Git:
+     -> dựng cluster mới, để ArgoCD/Flux sync lại toàn bộ từ Git
+  5. Khôi phục dữ liệu PV: velero restore, hoặc restore DB dump
+  6. Verify: chạy smoke test, kiểm tra ingress/cert/DNS
+
+Nguyên tắc vàng:
+  - Backup phải để NGOÀI cluster (S3/GCS), không để trong chính cluster
+  - Test restore định kỳ — backup không test = không có backup
+  - 3-2-1: 3 bản sao, 2 loại lưu trữ, 1 bản offsite
+```
+
 
 
 
