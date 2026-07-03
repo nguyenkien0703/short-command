@@ -1575,6 +1575,10 @@ cmctl renew <name>                     # Ép gia hạn cert ngay
 
 ## 🎛️ Vận hành & Backup Cluster K8s (manifest / data / DR)
 
+> 📘 **Xem sâu hơn:** [`k8s-operations-playbook.md`](./k8s-operations-playbook.md) — playbook đầy đủ về
+> sự cố thực tế (triệu chứng → chẩn đoán → xử lý → nguyên nhân gốc → phòng ngừa lâu dài),
+> backup/DR chuyên sâu, reliability, observability, security, và lộ trình DevOps Lead.
+
 > Khi vận hành cluster production, có **3 thứ phải backup**: (1) **etcd** — trạng thái cluster,
 > (2) **Manifest/YAML** — cấu hình resource (nên để trong Git = GitOps), (3) **Dữ liệu Persistent Volume**.
 
