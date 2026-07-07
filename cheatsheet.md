@@ -465,6 +465,57 @@ getent hosts <hostname>                # resolve DNS không cần nslookup/dig
 > Ghi chú: `/dev/tcp` là tính năng của **bash** (không có trong `sh`/dash). Nếu container chỉ có `sh`,
 > dùng `curl telnet://` hoặc `nc`. `timeout` giúp không bị treo khi port bị chặn (drop gói).
 
+### Check UDP từ trong container
+> UDP không có "handshake" như TCP nên khó xác nhận chắc chắn — không phản hồi có thể là "thông nhưng
+> service im lặng" HOẶC "bị chặn". Cần suy luận theo ngữ cảnh.
+```bash
+# nc cho UDP (nếu có netcat)
+nc -zvu <IP> <PORT>                    # -u = UDP; "open" hoặc "succeeded" là gửi được
+nc -u <IP> <PORT>                      # mở phiên UDP, gõ data thử (Ctrl+C thoát)
+echo "ping" | nc -u -w3 <IP> <PORT>    # gửi 1 gói, chờ 3s phản hồi
+
+# /dev/udp của bash (không cần tool ngoài) — gửi được gói là "đường thông"
+timeout 3 bash -c "echo -n 'test' > /dev/udp/<IP>/<PORT>" && echo SENT || echo FAIL
+
+# UDP đặc thù dịch vụ (cách chắc chắn nhất: dùng đúng client của dịch vụ)
+dig @<IP> -p <PORT> example.com        # test DNS server (UDP/53)
+nc -zvu <IP> 123                       # NTP thường ở UDP/123
+nmap -sU -p <PORT> <IP>                # quét UDP (chính xác hơn, cần cài nmap + quyền)
+```
+> Với UDP, cách đáng tin nhất là **dùng client thật của giao thức** (dig cho DNS, ntpdate cho NTP...)
+> vì nó chờ đúng loại phản hồi, thay vì đoán qua nc.
+
+### Debug DNS trong container
+> Trong container, "không kết nối được bằng tên nhưng bằng IP thì được" = lỗi DNS. Kiểm tra theo thứ tự:
+```bash
+# 1. Container đang dùng DNS server nào?
+cat /etc/resolv.conf                   # nameserver, search domain, ndots
+                                       # (Docker mặc định 127.0.0.11; K8s là ClusterIP của CoreDNS)
+
+# 2. Resolve tên KHÔNG cần tool ngoài (getent luôn có trên image glibc)
+getent hosts <hostname>                # ra IP = DNS OK; rỗng = resolve fail
+getent hosts google.com                # test resolve ra ngoài
+
+# 3. Nếu có dig/nslookup (bind-tools / dnsutils)
+dig <hostname>                         # chi tiết, xem ANSWER + server trả lời
+dig +short <hostname>                  # chỉ lấy IP
+nslookup <hostname>                    # thay thế dig
+dig @8.8.8.8 <hostname>                # hỏi thẳng DNS khác -> so sánh (loại trừ DNS nội bộ lỗi)
+
+# 4. Phân biệt lỗi DNS vs lỗi mạng
+getent hosts <hostname> || echo "DNS FAIL"        # tên -> IP?
+curl -v http://<IP-truc-tiep>/         # nếu IP thông mà tên fail -> chắc chắn lỗi DNS
+
+# 5. /etc/hosts (đôi khi bị override tên)
+cat /etc/hosts
+
+# Kubernetes: kiểm tra CoreDNS nếu resolve service fail
+# kubectl get pods -n kube-system -l k8s-app=kube-dns
+# kubectl exec <pod> -- nslookup <service>.<namespace>.svc.cluster.local
+```
+> Cài nhanh tool DNS khi container thiếu: `apk add bind-tools` (Alpine) · `apt install -y dnsutils`
+> (Debian/Ubuntu). Nhưng `getent hosts` thường đã đủ để xác nhận DNS thông hay không mà không cần cài gì.
+
 ### Log hệ thống & Service (systemd)
 ```bash
 journalctl -u <service>                # Log của 1 service
