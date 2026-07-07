@@ -441,6 +441,30 @@ curl ifconfig.me                       # Xem IP public
 tcpdump -i any port 80                 # Bắt gói tin (cần quyền root)
 ```
 
+### Check IP/PORT từ TRONG Docker container (khi thiếu tool)
+> Container thường bị cắt gọt (không có ping/nc/telnet). Đây là các cách check kết nối tới `IP:PORT`,
+> ưu tiên cách không cần cài tool ngoài.
+```bash
+# 1. curl check TCP qua scheme telnet:// (curl thường có sẵn)
+curl -v telnet://<IP>:<PORT>           # Kết nối được = "Connected to..."; fail = "Connection refused/timed out"
+
+# 2. Check TCP KHÔNG cần tool ngoài (dùng /dev/tcp của bash - tiện nhất trong container)
+timeout 5 bash -c "echo > /dev/tcp/<IP>/<PORT>" && echo OK || echo FAIL   # 5 = số giây chờ tối đa
+timeout 3 bash -c "cat < /dev/tcp/<IP>/<PORT>"   # mở & đọc thử (tùy dịch vụ)
+
+# 3. Check cả TLS/SSL (bắt tay chứng chỉ) — khi service dùng HTTPS/TLS
+openssl s_client -connect <IP>:<PORT>              # Xem handshake + cert
+openssl s_client -connect <IP>:<PORT> -servername <domain>   # kèm SNI (vhost TLS)
+echo | openssl s_client -connect <IP>:<PORT> 2>/dev/null | openssl x509 -noout -dates   # ngày hết hạn cert
+
+# Bổ sung nếu container CÓ sẵn tool:
+nc -zv <IP> <PORT>                     # netcat (nếu có)
+curl -v http://<IP>:<PORT>             # nếu là HTTP
+getent hosts <hostname>                # resolve DNS không cần nslookup/dig
+```
+> Ghi chú: `/dev/tcp` là tính năng của **bash** (không có trong `sh`/dash). Nếu container chỉ có `sh`,
+> dùng `curl telnet://` hoặc `nc`. `timeout` giúp không bị treo khi port bị chặn (drop gói).
+
 ### Log hệ thống & Service (systemd)
 ```bash
 journalctl -u <service>                # Log của 1 service
