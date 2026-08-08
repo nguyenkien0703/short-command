@@ -4816,6 +4816,105 @@ kubectl get pods -o json | jq '.items[].metadata.name'   # Kết hợp với kub
 curl -s <api> | jq '.data'             # Kết hợp với curl
 ```
 
+<details>
+<summary><b>Bấm xem: giải nghĩa cú pháp jq — từ số 0</b></summary>
+
+**Tiền đề — vì sao cần `jq`?** `kubectl`, `aws`, `docker inspect`, hầu hết API trả về **JSON**. JSON đọc bằng mắt thì được với vài dòng, nhưng vài trăm dòng lồng nhau thì **không tìm nổi** field cần. `jq` là "grep dành riêng cho JSON" — biết đi vào cấu trúc lồng nhau, không chỉ tìm chữ.
+
+| Ký hiệu | Nghĩa |
+|---|---|
+| `.` | **Gốc** của JSON — dùng một mình để in nguyên văn, format đẹp |
+| `.ten` | Lấy **field** tên `ten` |
+| `.a.b.c` | Đi **lồng** vào nhiều tầng |
+| `.items[]` | ⭐ **Duyệt qua** mảng — mỗi phần tử ra một dòng kết quả riêng |
+| `.items[0]` | Chỉ lấy phần tử **thứ 0** (JSON đếm từ 0) |
+| `.items[].id` | Duyệt mảng **rồi** lấy field `id` của từng phần tử |
+| `-r` | **r**aw: bỏ dấu ngoặc kép quanh chuỗi kết quả |
+| `select(...)` | **Lọc** — chỉ giữ phần tử thoả điều kiện |
+| `\|` | **Nối** nhiều bước lại, giống pipe của shell nhưng bên trong jq |
+
+⭐ **Phân biệt `.a.b` và `.a[]` — nhầm là ra lỗi khó hiểu:**
+
+```bash
+echo '{"user":{"name":"Kien"}}' | jq '.user.name'
+# "Kien"     <- .a.b: ĐI VÀO một OBJECT (dấu {})
+
+echo '{"items":[{"id":1},{"id":2}]}' | jq '.items[]'
+# {"id":1}
+# {"id":2}   <- .a[]: DUYỆT một ARRAY (dấu [])
+```
+
+🛑 Dùng `.items.id` (thiếu `[]`) trên một **mảng** ⇒ jq báo lỗi `Cannot index array with string "id"` — vì mảng không có "tên field", nó có "chỉ số".
+
+**`-r` — vì sao gần như luôn cần khi đưa vào script:**
+
+```bash
+jq '.name' data.json        # -> "Kien"   (CÓ dấu ngoặc kép — vẫn là JSON string)
+jq -r '.name' data.json     # -> Kien     (chuỗi THUẦN — dùng được luôn trong shell)
+```
+
+⇒ Thiếu `-r` mà gán vào biến shell: `NAME=$(jq '.name' data.json)` ⇒ `$NAME` sẽ **CHỨA CẢ dấu ngoặc kép**, đưa vào lệnh khác gây lỗi lạ (ví dụ `curl -H "Authorization: Bearer \"abc\""`).
+
+⭐ **`select()` — lọc theo điều kiện, ghép với `|`:**
+
+```bash
+kubectl get pods -A -o json | jq -r '.items[] | select(.status.phase!="Running") | .metadata.name'
+#                                     │           │                                └─ lấy tên
+#                                     │           └─ CHỈ GIỮ pod KHÔNG chạy
+#                                     └─ duyệt qua từng pod
+```
+
+Cách đọc `|` bên trong jq: **kết quả bước trước** trở thành **đầu vào của bước sau** — y hệt pipe của shell, chỉ khác là hoạt động **bên trong một JSON**.
+
+**Đếm, gộp, sắp xếp:**
+
+```bash
+jq '.items | length' data.json                    # đếm phần tử trong mảng
+jq -r '.items[] | .name' data.json | sort | uniq -c   # đếm theo giá trị (kết hợp với sort/uniq của shell)
+jq '[.items[] | select(.active)] | length' data.json  # ⭐ đếm phần tử THOẢ điều kiện
+#   └─ dấu [ ] bọc lại: gom kết quả thành MỘT mảng mới, rồi mới đếm
+```
+
+⚠️ Thiếu cặp `[ ]` bọc quanh, `length` sẽ báo lỗi hoặc tính sai — vì `select` sau `|` cho ra **nhiều giá trị rời rạc**, không phải một mảng, và `length` cần **một mảng** để đếm.
+
+**Kết hợp với `kubectl`/`curl` — công thức hay dùng nhất:**
+
+```bash
+kubectl get pods -o json | jq -r '.items[].metadata.name'
+#                                              └─ ⭐ .metadata.name, KHÔNG PHẢI .name
+#                                                 (object của K8s luôn lồng field trong metadata/spec/status)
+
+kubectl get pods -o json \
+  | jq -r '.items[] | "\(.metadata.name)  \(.status.phase)"'
+#                       └─ ⭐ chuỗi nội suy: \(...) chèn giá trị field vào giữa văn bản
+#  => in ra: "myapp-7d9f  Running"
+```
+
+**Sửa JSON — `jq` không chỉ đọc, còn ghi được:**
+
+```bash
+jq '.replicas = 5' values.json > values-new.json
+#   └─ ĐẶT lại giá trị field (jq KHÔNG sửa file tại chỗ — luôn phải ghi RA FILE MỚI)
+
+cat data.json | jq '.tags += ["prod"]'    # thêm phần tử vào mảng có sẵn
+```
+
+🛑 **`jq` không có cờ sửa tại chỗ** như `sed -i`. Viết `jq '...' file.json > file.json` (cùng tên) sẽ **làm rỗng file trước khi jq kịp đọc** — vì shell mở `>` để ghi **trước khi** chạy lệnh. Cách đúng:
+
+```bash
+jq '.replicas = 5' values.json > tmp.json && mv tmp.json values.json
+#                                └─ ⭐ dùng file tạm rồi đổi tên đè lên, TUYỆT ĐỐI không > cùng tên
+```
+
+**Debug khi jq báo lỗi khó hiểu:**
+
+```bash
+jq . data.json          # chỉ format lại, không lọc gì -> nếu LỖI ngay bước này = JSON gốc SAI CÚ PHÁP
+jq 'type' data.json      # kiểm tra gốc là object hay array
+```
+
+</details>
+
 ### yq - Xử lý YAML (giống jq nhưng cho YAML)
 ```bash
 yq '.version' config.yaml              # Lấy field
@@ -4823,6 +4922,83 @@ yq -i '.image.tag = "1.2.3"' values.yaml   # Sửa file tại chỗ (hay khi CI/
 yq eval '.services | keys' docker-compose.yml   # Lấy danh sách service
 yq -o=json config.yaml                 # Convert YAML sang JSON
 ```
+
+<details>
+<summary><b>Bấm xem: giải nghĩa yq — và cảnh báo có 2 chương trình cùng tên "yq"</b></summary>
+
+🛑 **Cảnh báo quan trọng nhất trước khi dùng `yq`: có HAI chương trình khác nhau cùng tên.**
+
+| | `yq` bản Go (mikefarah) | `yq` bản Python (kislyuk) |
+|---|---|---|
+| Cú pháp | Giống `jq` | Bọc quanh `jq` thật, cú pháp khác |
+| `yq -i` | Sửa **tại chỗ** | Không hỗ trợ giống nhau |
+| Cách nhận biết | `yq --version` ra `yq (https://github.com/mikefarah/yq...)` | ra bản có chữ `python-yq` |
+
+⇒ Copy lệnh `yq` từ Internet mà báo lỗi cú pháp lạ ⇒ **kiểm tra `yq --version` trước** — rất có thể máy đang cài bản kia. Cheatsheet này dùng **bản Go (mikefarah)** — bản phổ biến hơn trong giới DevOps.
+
+| Cú pháp | Giống jq ở | Khác jq ở |
+|---|---|---|
+| `.field`, `.a.b.c` | ✅ Giống hệt | |
+| `.items[]` | ✅ Giống hệt | |
+| `-i` | | ⭐ **Sửa file TẠI CHỖ** — yq CÓ, jq **KHÔNG CÓ** |
+| `eval` | | Cú pháp đầy đủ (`yq` là viết tắt của `yq eval`) |
+| `-o=json` | | Đổi **định dạng đầu ra** |
+| `-P` | | **P**retty: format JSON đẹp khi xuất ra |
+
+⭐ **`-i` — điểm khác biệt lớn nhất so với `jq`:**
+
+```bash
+yq -i '.image.tag = "1.2.3"' values.yaml
+#  │                          └─ ⭐ SỬA TRỰC TIẾP file này, không cần > file khác
+#  └─ in-place: khác hẳn jq (jq luôn phải ghi ra file mới)
+```
+
+⇒ Đây là lý do `yq` rất được ưa dùng trong **CI/CD** để đổi image tag trước khi deploy:
+
+```bash
+yq -i '.spec.template.spec.containers[0].image = "myapp:'"$TAG"'"' deployment.yaml
+#                          └─ [0] = container ĐẦU TIÊN trong danh sách containers
+#                                  (pod nhiều container thì PHẢI chỉ đúng index)
+```
+
+⚠️ `yq -i` **sửa file gốc, không có bước xác nhận**. Trong pipeline CI, luôn `git diff` sau bước này để chắc chắn thay đổi đúng ý, trước khi commit tự động.
+
+**Đọc dữ liệu:**
+
+```bash
+yq '.version' config.yaml                     # lấy 1 field
+yq eval '.services | keys' docker-compose.yml # ⭐ liệt kê TÊN các key (không phải giá trị)
+#              └─ "keys" lấy danh sách TÊN của một object — hữu ích để biết "có những service nào"
+```
+
+**Chuyển đổi định dạng — chỗ `yq` hơn hẳn `jq`:**
+
+```bash
+yq -o=json config.yaml              # YAML -> JSON
+yq -p=json -o=yaml data.json        # JSON -> YAML (⭐ -p = định dạng ĐẦU VÀO)
+yq -o=props config.yaml             # YAML -> dạng key=value (Java properties)
+```
+
+⚠️ `-p` (parse, đầu **vào**) và `-o` (output, đầu **ra**) — bóc nhầm hai cờ này là đọc/ghi sai định dạng.
+
+**Kiểm tra cú pháp YAML trước khi apply — rất đáng làm với K8s manifest:**
+
+```bash
+yq eval '.' deployment.yaml > /dev/null && echo "YAML hợp lệ" || echo "LỖI CÚ PHÁP"
+#            └─ đọc và in lại (vứt đi) -> chỉ để BUỘC yq phải PARSE toàn bộ file
+```
+
+⚠️ **`yq eval '.'` chỉ bắt lỗi CÚ PHÁP YAML** (thụt lề sai, thiếu dấu `:`), **không** bắt lỗi **ngữ nghĩa K8s** (thiếu field bắt buộc, field không tồn tại trong schema). Muốn kiểm cả ngữ nghĩa, dùng `kubectl apply --dry-run=server` (đã nói ở mục Helm/kubectl phía trên).
+
+**Xử lý nhiều document trong một file** (YAML cho phép nhiều tài liệu cách nhau bằng `---`, K8s hay dùng kiểu này):
+
+```bash
+yq eval-all '.' -                    # gộp NHIỀU document, đọc từ stdin
+yq eval 'select(.kind == "Deployment")' manifests.yaml
+#               └─ lọc ra CHỈ document có kind=Deployment trong file nhiều tài liệu
+```
+
+</details>
 
 ### Biến môi trường (Environment variables)
 ```bash
@@ -4836,6 +5012,79 @@ set -a; source .env; set +a            # Nạp toàn bộ file .env vào môi tr
 KEY=value command                      # Set biến chỉ cho 1 lệnh
 ```
 
+<details>
+<summary><b>Bấm xem: giải nghĩa export/unset và ba tầng "phạm vi" của biến shell</b></summary>
+
+**Tiền đề — ba tầng biến, phải phân biệt:**
+
+| | Biến shell thường | Biến **export**ed | Biến trong `.env` |
+|---|---|---|---|
+| Khai báo | `KEY=value` | `export KEY=value` | dòng `KEY=value` trong file |
+| Tiến trình CON có thấy không? | ❌ **KHÔNG** | ✅ **CÓ** | Tuỳ cách nạp |
+| Ví dụ | biến tạm trong script | `PATH`, `HOME` | `DB_PASSWORD` cho app đọc |
+
+🛑 **Đây là bẫy hay gặp nhất**: gõ `KEY=value` (thiếu `export`) rồi chạy chương trình khác trong CÙNG shell ⇒ chương trình đó **không thấy** biến này, vì biến chỉ tồn tại trong **shell hiện tại**, không truyền xuống tiến trình con.
+
+```bash
+KEY=value          # chỉ shell HIỆN TẠI biết
+export KEY=value   # ⭐ shell hiện tại VÀ mọi tiến trình con (app, script gọi từ đây) đều thấy
+```
+
+**Lệnh cơ bản:**
+
+| Lệnh | Làm gì |
+|---|---|
+| `env` | In **mọi biến đã export** |
+| `printenv <VAR>` | In **một** biến (gọn hơn `env \| grep`) |
+| `echo $PATH` | Đọc trực tiếp bằng cú pháp shell — hoạt động với **cả biến chưa export** |
+| `export KEY=value` | Set và **cho tiến trình con thấy** |
+| `unset KEY` | Xoá hẳn biến |
+| `set -a; source .env; set +a` | Nạp cả file `.env` **và tự động export từng dòng** |
+
+⭐ **`export PATH=$PATH:/new/path` — bóc để hiểu vì sao KHÔNG được đặt trước:**
+
+```bash
+export PATH=$PATH:/new/path
+#             │    └─ đường dẫn MỚI thêm vào
+#             └────── LẤY GIÁ TRỊ CŨ của PATH trước (nếu không có $PATH, PATH cũ bị GHI ĐÈ MẤT)
+```
+
+⚠️ Shell tìm chương trình theo **PATH, từ trái sang phải, dừng ở lệnh khớp ĐẦU TIÊN**. `export PATH=/new/path:$PATH` (đặt **trước**) khiến thư mục mới được **ưu tiên hơn** hệ thống; `export PATH=$PATH:/new/path` (đặt **sau**) thì **hệ thống được ưu tiên hơn**. Đây là công cụ để chọn "phiên bản nào của một chương trình chạy trước" khi có nhiều bản cài song song (ví dụ nhiều version Python).
+
+⭐ **`set -a; source .env; set +a` — vì sao ba lệnh cần đi cùng nhau:**
+
+```bash
+set -a          # BẬT: mọi biến khai báo TỪ ĐÂY TRỞ ĐI tự động export
+source .env     # nạp file: mỗi dòng KEY=value trở thành biến shell VÀ tự export nhờ set -a
+set +a          # TẮT lại chế độ tự export (để các lệnh sau đó không bị ảnh hưởng)
+```
+
+🛑 Chỉ `source .env` (thiếu `set -a`) ⇒ biến chỉ tồn tại trong **shell hiện tại**, tiến trình con (app bạn sắp chạy) **không thấy được**.
+
+⚠️ Cách khác hay gặp — `export $(cat .env | xargs)` — **hỏng ngay** khi file có **giá trị chứa khoảng trắng** hoặc dòng comment (`#`); shell tách nhầm chỗ. `set -a; source` là cách **an toàn nhất**, xử lý đúng theo cú pháp file.
+
+**Set biến chỉ cho MỘT lệnh — không ảnh hưởng phiên làm việc:**
+
+```bash
+KEY=value command
+#   └─ biến này CHỈ tồn tại trong đúng THỜI GIAN chạy "command",
+#      KHÔNG lưu lại trong shell sau khi command chạy xong
+DEBUG=true npm start
+```
+
+⇒ Cách này **an toàn hơn `export`** khi chỉ cần đổi hành vi tạm thời một lần — không sợ quên `unset` rồi ảnh hưởng lệnh sau.
+
+**Kiểm tra ở đâu ra một biến** (đặt ở nhiều file dễ chồng chéo):
+
+```bash
+type -a KEY 2>/dev/null; echo "KEY=$KEY"    # xem giá trị hiện tại
+env | grep KEY                              # có được export hay không (không thấy = chưa export)
+```
+
+⚠️ **Thứ tự nạp file cấu hình shell** — biến định nghĩa ở file nạp **sau** sẽ **đè** file nạp **trước**: `~/.zshenv` → `~/.zprofile` → `~/.zshrc` (zsh); `~/.bash_profile`/`~/.profile` → `~/.bashrc` (bash). Đặt cùng một biến ở hai chỗ khác nhau là nguồn gốc của "tôi đã set rồi mà sao vẫn giá trị cũ".
+
+</details>
+
 ### Cron - Lập lịch chạy tự động
 ```bash
 crontab -l                             # Xem lịch cron hiện tại
@@ -4846,6 +5095,107 @@ crontab -r                             # Xóa toàn bộ cron
 # */5 * * * * /path/check.sh           # Mỗi 5 phút
 systemctl list-timers                  # Xem systemd timer (thay thế cron)
 ```
+
+<details>
+<summary><b>Bấm xem: giải nghĩa 5 trường cron và các lỗi hay gặp</b></summary>
+
+| Lệnh | Làm gì |
+|---|---|
+| `crontab -l` | **L**ist — xem lịch hiện tại |
+| `crontab -e` | **E**dit — sửa (mở editor, mặc định `vi`) |
+| `crontab -r` | **R**emove — 🛑 xoá **TOÀN BỘ**, không hỏi lại |
+| `crontab -u <user>` | Thao tác cron của **user khác** (cần quyền root) |
+
+🛑 **`crontab -r` không hỏi xác nhận** — xoá sạch mọi cron job của user đó ngay lập tức. Trước khi sửa cron, luôn sao lưu:
+
+```bash
+crontab -l > cron-backup-$(date +%F).txt    # backup trước khi động vào
+```
+
+**Cấu trúc 5 trường — phải thuộc để đọc/viết đúng:**
+
+```
+* * * * *  lệnh
+│ │ │ │ │
+│ │ │ │ └─ Thứ trong tuần (0-7, cả 0 VÀ 7 đều là Chủ Nhật)
+│ │ │ └─── Tháng (1-12)
+│ │ └───── Ngày trong tháng (1-31)
+│ └─────── Giờ (0-23)
+└───────── Phút (0-59)
+```
+
+**Ký hiệu đặc biệt:**
+
+| Ký hiệu | Nghĩa | Ví dụ |
+|---|---|---|
+| `*` | **Mọi** giá trị | `* * * * *` = mỗi phút |
+| `*/N` | Mỗi N đơn vị | `*/5 * * * *` = mỗi 5 phút |
+| `,` | Liệt kê nhiều giá trị | `0 9,17 * * *` = 9h **và** 17h |
+| `-` | Khoảng | `0 9-17 * * *` = mỗi giờ từ 9h đến 17h |
+
+**Ví dụ đọc — luyện đọc từ trái sang phải theo đúng thứ tự trường:**
+
+```bash
+0 2 * * *        /path/backup.sh        # phút=0 giờ=2  -> 2:00 sáng MỖI NGÀY
+*/5 * * * *       /path/check.sh         # mỗi 5 PHÚT
+0 9 * * 1-5       /path/report.sh        # 9:00 sáng, THỨ 2 ĐẾN THỨ 6 (bỏ qua cuối tuần)
+0 0 1 * *         /path/monthly.sh       # 0:00 NGÀY 1 mỗi tháng
+```
+
+🛑 **Ba lỗi kinh điển khiến "cron không chạy" — kiểm tra theo đúng thứ tự này:**
+
+**1. PATH của cron KHÁC PATH của bạn khi gõ tay.** Cron chạy với môi trường **rất tối giản**, không nạp `.bashrc`/`.zshrc` ⇒ lệnh chạy ngon khi gõ tay nhưng cron báo `command not found`.
+
+```bash
+# Trong crontab, LUÔN dùng đường dẫn TUYỆT ĐỐI cho cả lệnh và file:
+0 2 * * * /usr/bin/python3 /home/deployer/backup.py
+#         └─ tuyệt đối       └─ tuyệt đối, KHÔNG dùng ~ hay đường dẫn tương đối
+```
+
+💡 Tìm đường dẫn tuyệt đối: `which python3`.
+
+**2. Không thấy log lỗi vì output bị "rơi vào hư không".** Mặc định, output của cron job được **gửi mail cho user** — nhưng đa số server **không cấu hình mail** ⇒ output biến mất hoàn toàn, không cách nào biết job đã chạy hay lỗi.
+
+```bash
+0 2 * * * /path/backup.sh >> /var/log/backup.log 2>&1
+#                          │                      └─ gộp CẢ lỗi (stderr) vào cùng file
+#                          └─ >> nối thêm, KHÔNG ghi đè file cũ
+```
+
+⚠️ Dùng `>` (một dấu) thay vì `>>` sẽ **XOÁ log lần chạy trước** mỗi khi cron chạy lại — chỉ còn log của lần gần nhất.
+
+**3. Ai đó `sudo crontab -e` thay vì `crontab -e`** — sửa nhầm **cron của root**, không phải của mình:
+
+```bash
+crontab -l              # xem cron CỦA TÔI
+sudo crontab -l -u root # xem cron CỦA ROOT (khác hẳn — hay bị nhầm khi debug)
+```
+
+**Kiểm tra cron có thực sự chạy hay không:**
+
+```bash
+grep CRON /var/log/syslog | tail -20         # Debian/Ubuntu
+journalctl -u cron -f                         # systemd — bám realtime
+journalctl -u cron --since "1 hour ago"       # log 1 giờ gần đây
+```
+
+⭐ **`systemctl list-timers`— công cụ thay thế hiện đại của cron:**
+
+```bash
+systemctl list-timers --all
+#                     └─ hiện cả timer CHƯA từng chạy lần nào
+```
+
+| | cron | systemd timer |
+|---|---|---|
+| Log | Phải tự cấu hình (như trên) | ⭐ Tự động vào `journalctl` |
+| Phụ thuộc | Không | ✅ Chờ được service khác xong mới chạy |
+| Chạy bù nếu máy tắt đúng giờ | ❌ Không | ✅ Có (`Persistent=true`) |
+| Có sẵn trên container/K8s | ❌ Cần cài thêm | K8s dùng `CronJob` riêng, không dùng systemd |
+
+⇒ Trên hệ thống dùng systemd, **timer là lựa chọn hiện đại hơn** cron truyền thống, đặc biệt khi cần chạy bù việc bị lỡ (máy tắt đúng lúc lịch chạy).
+
+</details>
 
 ---
 
@@ -4866,6 +5216,77 @@ terraform output                       # Xem output values
 terraform plan -out=tf.plan            # Lưu plan ra file
 ```
 
+<details>
+<summary><b>Bấm xem: giải nghĩa lệnh Terraform — vì sao phải plan trước apply</b></summary>
+
+**Tiền đề — Terraform "biết" trạng thái hạ tầng bằng cách nào?** Nó lưu một file **state** (`terraform.tfstate`) ghi lại **những gì nó đã tạo**. Mọi lệnh (`plan`, `apply`) đều **so sánh 3 bên**: code bạn viết · state đã lưu · **thực tế trên cloud** — rồi tính ra cần làm gì để khớp.
+
+| Lệnh | Làm gì | Đụng vào hạ tầng thật? |
+|---|---|---|
+| `terraform init` | Tải **provider** (plugin gọi API AWS/GCP...) + cấu hình nơi lưu state | ❌ Không |
+| `terraform validate` | Kiểm tra **cú pháp** file `.tf` | ❌ Không |
+| `terraform fmt` | Format lại code theo chuẩn | ❌ Không |
+| `terraform plan` | ⭐ **Tính toán** sẽ tạo/sửa/xoá gì, **chỉ in ra xem** | ❌ Không |
+| `terraform apply` | **Thực thi** thật lên cloud | ✅ **CÓ** |
+| `terraform destroy` | 🔴 **Xoá** mọi resource đang quản lý | ✅ **CÓ, và MẤT** |
+| `terraform state list` | Liệt kê resource **trong state** | ❌ Không |
+| `terraform show` | In state hiện tại dạng đọc được | ❌ Không |
+| `terraform output` | In các giá trị `output` đã khai báo | ❌ Không |
+
+⭐ **`plan` trước `apply` — không phải thói quen tốt, mà là BẮT BUỘC ở production.** `plan` cho biết chính xác **3 con số**: bao nhiêu resource sẽ `+ create`, `~ update`, `- destroy` — trước khi bất cứ thứ gì thật sự xảy ra.
+
+```
+Plan: 2 to add, 1 to change, 1 to destroy.
+#          │         │            └─ 🛑 ĐỌC KỸ dòng này — "destroy" nghĩa là XOÁ THẬT
+#          │         └────────────── sửa tại chỗ, không mất resource
+#          └──────────────────────── tạo mới
+```
+
+🛑 **"1 to change" đôi khi ẩn giấu một "destroy + create"** — Terraform gọi là **replace**, hiện dấu `-/+` chứ không phải `~`. Một số thay đổi (ví dụ đổi tên EBS volume, đổi AZ) **không sửa tại chỗ được** ⇒ cloud provider buộc phải **xoá rồi tạo lại** ⇒ **mất dữ liệu** nếu là ổ đĩa/database. ⇒ Luôn đọc kỹ dấu ở đầu mỗi dòng trong `plan`, không chỉ đọc dòng tổng kết.
+
+```bash
+terraform plan -out=tf.plan
+#               └─ LƯU kết quả tính toán ra file
+terraform apply tf.plan
+#               └─ ⭐ áp dụng ĐÚNG những gì đã plan, KHÔNG tính lại
+#                  (nếu apply không truyền file, Terraform TÍNH LẠI plan ngay trước khi hỏi —
+#                   giữa lúc plan và lúc bạn gõ "yes" có thể đã đổi -> apply thẳng file plan an toàn hơn)
+```
+
+⇒ Đây là mẫu chuẩn trong CI/CD: bước **plan** chạy riêng (cho người review đọc), bước **apply** dùng đúng file đã review — tránh tình trạng "cái tôi review khác cái được apply".
+
+⚠️ **`-auto-approve` — cân nhắc kỹ, KHÔNG dùng tuỳ tiện ở production:**
+
+```bash
+terraform apply -auto-approve
+#                └─ bỏ qua bước hỏi "yes" -> ⭐ CHỈ hợp cho pipeline CI đã được review kỹ,
+#                   KHÔNG hợp để gõ tay ở terminal khi làm production
+```
+
+🛑 **`terraform destroy` — hiểu phạm vi trước khi chạy:**
+
+```bash
+terraform destroy                        # 🔴 xoá TOÀN BỘ resource trong state hiện tại
+terraform destroy -target=aws_instance.web   # chỉ xoá MỘT resource cụ thể
+#                  └─ target: giới hạn phạm vi (nhưng CẢNH BÁO: Terraform documentation
+#                     khuyên KHÔNG lạm dụng -target vì có thể để state lệch khỏi thực tế)
+```
+
+⭐ **`terraform state list` + `show` — công cụ điều tra khi "apply nói có thay đổi mà tôi không sửa gì":**
+
+```bash
+terraform state list                              # mọi resource ĐANG quản lý
+terraform state show aws_instance.web             # chi tiết MỘT resource, đúng như Terraform thấy
+terraform plan -refresh-only                       # ⭐ chỉ ĐỐI CHIẾU với thực tế, KHÔNG đổi state
+#              └─ trả lời: "có ai sửa tay trên console cloud mà Terraform chưa biết không?"
+```
+
+⚠️ **Nguyên nhân số 1 của "plan báo thay đổi lạ"**: ai đó **sửa trực tiếp trên AWS/GCP Console** (thêm tag, đổi security group) mà không qua Terraform ⇒ lần `plan` sau sẽ đòi **sửa lại cho khớp code** — đây chính là "giật lại quyền kiểm soát", không phải Terraform bị lỗi.
+
+⚠️ **State chứa dữ liệu nhạy cảm ở dạng KHÔNG mã hoá** (password, private key có thể nằm trong đó) ⇒ **không bao giờ commit `.tfstate` vào Git**. Luôn dùng **remote backend** (S3 + DynamoDB lock, Terraform Cloud) để lưu state tập trung và **khoá** khi nhiều người cùng chạy — tránh hai người `apply` đồng thời làm hỏng state.
+
+</details>
+
 ### Ansible
 ```bash
 ansible all -m ping                    # Kiểm tra kết nối tới tất cả host
@@ -4877,6 +5298,93 @@ ansible-playbook site.yml -vvv         # Verbose (debug)
 ansible-vault encrypt secrets.yml      # Mã hóa file secret
 ansible all -m shell -a "df -h"        # Chạy lệnh shell trên tất cả host
 ```
+
+<details>
+<summary><b>Bấm xem: giải nghĩa cờ Ansible — và vì sao --check không đáng tin 100%</b></summary>
+
+**Tiền đề — khác Terraform ở điểm nào?** Terraform quản lý **hạ tầng** (tạo máy chủ, mạng). Ansible chạy **bên trong** máy đã có sẵn để **cấu hình** nó (cài package, sửa file, khởi động service) — qua SSH, **không cần cài agent** trên máy đích.
+
+| Cờ | Viết tắt của | Làm gì |
+|---|---|---|
+| `-m` | **m**odule | Chạy đúng **một module** thay vì cả playbook |
+| `-i` | **i**nventory | Danh sách máy đích (file hoặc script động) |
+| `--check` | | ⭐ **Diễn tập** — dự đoán thay đổi, không áp dụng thật |
+| `--diff` | | Hiện **nội dung khác biệt** của file sẽ bị sửa |
+| `--limit` | | Chỉ chạy trên **một nhóm/host** trong inventory |
+| `-v` / `-vvv` | **v**erbose | Càng nhiều `v` càng chi tiết |
+| `-a` | **a**rguments | Tham số truyền cho module |
+| `--tags` | | Chỉ chạy **task được gắn tag** đó |
+| `-K` | ask become pass | Hỏi mật khẩu `sudo` trên máy đích |
+
+⭐ **`ansible all -m ping` — lệnh kiểm tra đầu tiên, luôn chạy trước mọi playbook:**
+
+```bash
+ansible all -m ping
+#       │    └─ module "ping": KHÔNG PHẢI lệnh ping ICMP mạng thường!
+#       │                      nó kiểm tra: SSH vào được + Python sẵn sàng chạy module
+#       └────── nhóm "all" trong inventory
+```
+
+🛑 **`ansible ping` ≠ lệnh `ping` của hệ điều hành.** Trả lời `pong` nghĩa là: SSH OK, xác thực OK, **Python trên máy đích hoạt động** (Ansible cần Python để chạy hầu hết module). "ping" mạng thông thường không kiểm tra được ba điều này.
+
+**`-m` — chạy nhanh một việc mà không cần viết playbook:**
+
+```bash
+ansible web -m shell -a "df -h"
+#       │    │        └─ tham số: lệnh shell cần chạy
+#       │    └────────── module "shell": chạy qua /bin/sh, HIỂU pipe/redirect (|, >)
+#       └───────────── nhóm "web" trong inventory
+
+ansible web -m command -a "df -h"
+#            └─ module "command": ⭐ AN TOÀN HƠN shell — KHÔNG qua shell,
+#               không hiểu pipe/redirect/biến môi trường -> tránh injection
+```
+
+⚠️ **`shell` vs `command` — chọn `command` khi có thể.** `shell` cho phép cú pháp shell đầy đủ (`|`, `&&`, `$VAR`) nhưng đó cũng là **rủi ro bảo mật** nếu tham số đến từ input không tin cậy. Chỉ dùng `shell` khi thực sự cần pipe/redirect.
+
+⭐ **`--check` — vì sao KHÔNG đáng tin 100%, phải biết giới hạn:**
+
+```bash
+ansible-playbook site.yml --check --diff
+#                          │       └─ CÙNG lúc: hiện rõ nội dung file sẽ đổi thế nào
+#                          └─────── dry-run: dự đoán, KHÔNG áp dụng thật
+```
+
+🛑 **Giới hạn quan trọng**: `--check` hoạt động tốt với module quản lý **file/package** (biết dự đoán chính xác). Nhưng với module chạy **lệnh tuỳ ý** (`command`, `shell`) — Ansible **không có cách nào biết trước** lệnh đó sẽ làm gì ⇒ nó **BỎ QUA hoàn toàn** bước đó trong chế độ check (trừ khi task được đánh dấu rõ `check_mode: false` để buộc chạy, hoặc `changed_when` được set thủ công).
+
+⇒ Playbook dùng nhiều `shell`/`command` thì `--check` **chỉ cho một bức tranh KHÔNG ĐẦY ĐỦ**. Đừng coi "check chạy sạch" là bằng chứng chắc chắn "apply thật cũng sẽ chạy sạch".
+
+**`--limit` — thu hẹp phạm vi, tránh chạy nhầm cả fleet:**
+
+```bash
+ansible-playbook site.yml --limit web01.company.vn      # đúng MỘT máy
+ansible-playbook site.yml --limit web              # đúng MỘT nhóm
+ansible-playbook site.yml --limit 'web:!web03'      # nhóm web, TRỪ web03
+#                                  └─ dấu ! = loại trừ
+```
+
+⭐ **Quy trình an toàn khi đổi cấu hình trên fleet lớn:**
+
+```bash
+ansible-playbook site.yml --check --diff --limit web01     # 1. thử trên 1 máy trước, xem diff
+ansible-playbook site.yml --limit web01                    # 2. apply thật trên máy đó, kiểm tra kỹ
+ansible-playbook site.yml --limit web                       # 3. mới áp dụng cho CẢ nhóm
+```
+
+⚠️ **`ansible-vault` — mã hoá secret để commit an toàn vào Git:**
+
+```bash
+ansible-vault encrypt secrets.yml           # mã hoá file
+ansible-vault view secrets.yml              # xem nội dung mà KHÔNG giải mã ra đĩa
+ansible-vault edit secrets.yml              # sửa (tự giải mã -> sửa -> tự mã hoá lại)
+ansible-playbook site.yml --ask-vault-pass  # chạy playbook, hỏi mật khẩu vault
+```
+
+⚠️ Sau `encrypt`, file trên đĩa là **văn bản mã hoá** — `git diff` sẽ **không đọc được nội dung thay đổi thật**, chỉ thấy toàn bộ khối mã hoá đổi khác. Đây là đánh đổi chấp nhận được để giữ secret an toàn trong Git.
+
+⚠️ `-vvv` in ra **cả nội dung biến**, kể cả biến đã đưa qua vault sau khi giải mã ⇒ **cẩn thận khi dán log debug** ra nơi công khai — mảnh log đó có thể chứa secret dạng rõ.
+
+</details>
 
 ---
 
@@ -4902,6 +5410,82 @@ yarn <script>                          # Chạy script
 pnpm install / pnpm add <pkg>          # Tương tự nhưng nhanh & tiết kiệm disk
 ```
 
+<details>
+<summary><b>Bấm xem: giải nghĩa npm install vs ci, và semver</b></summary>
+
+**Tiền đề — `package.json` vs `package-lock.json`:**
+
+| File | Chứa | Ai đọc |
+|---|---|---|
+| `package.json` | Version **mong muốn**, thường ghi dạng khoảng (`^1.2.0`) | Người viết code |
+| `package-lock.json` | Version **CHÍNH XÁC** đã cài lần gần nhất, cho **mọi** package con | npm dùng để cài lại y hệt |
+
+⭐ **`npm install` vs `npm ci` — khác biệt quan trọng nhất, quyết định CI có ổn định không:**
+
+| | `npm install` | `npm ci` |
+|---|---|---|
+| Đọc theo | `package.json` (khoảng version) | ⭐ **CHỈ** `package-lock.json` (chính xác tuyệt đối) |
+| Có thể **SỬA** `package-lock.json`? | ✅ Có (nếu version mới ra mà vẫn khớp `^`) | ❌ **KHÔNG BAO GIỜ** |
+| `node_modules` cũ | Giữ, cài chồng lên | 🛑 **XOÁ SẠCH trước khi cài** |
+| Tốc độ | Chậm hơn | ⭐ **Nhanh hơn** |
+| Thiếu file lock | Tự tạo mới | ❌ **Báo lỗi**, dừng ngay |
+
+⇒ **Quy tắc: máy dev dùng `install`, CI/CD LUÔN dùng `ci`.** Vì `install` có thể âm thầm cài **bản mới hơn** một chút so với lock file (nếu nằm trong khoảng `^`/`~`) ⇒ "chạy trên máy tôi thì được" nhưng **build trên CI ra khác** — chính `ci` được sinh ra để triệt tiêu sự khác biệt này.
+
+**Đọc ký hiệu version (semver) trong `package.json`:**
+
+| Ký hiệu | Nghĩa | Ví dụ `^1.2.3` chấp nhận |
+|---|---|---|
+| `^` | Không đổi số **đầu tiên khác 0** | `1.2.4`, `1.9.0` — **không** `2.0.0` |
+| `~` | Chỉ đổi **bản vá** (số cuối) | `1.2.4` — **không** `1.3.0` |
+| (không có gì) | **Chính xác** đúng version đó | Chỉ `1.2.3` |
+| `*` hoặc `latest` | 🛑 Bất kỳ version nào | Rất nguy hiểm cho production |
+
+⚠️ Ba số trong version `MAJOR.MINOR.PATCH` theo quy ước: **MAJOR** đổi = có thể **hỏng tương thích ngược** · **MINOR** = thêm tính năng, vẫn tương thích · **PATCH** = chỉ sửa lỗi. `^` tin tưởng rằng tác giả package tuân thủ đúng quy ước này — **nhưng không phải ai cũng tuân thủ nghiêm**, đây là rủi ro tiềm ẩn của `^`.
+
+**Dọn dẹp khi gặp lỗi lạ:**
+
+```bash
+npm cache clean --force
+#                └─ --force BẮT BUỘC phải có, vì npm CỐ Ý chặn lệnh này
+#                   (dọn cache có thể gây ra đúng lỗi mà bạn đang cố sửa, nên npm cảnh báo trước)
+
+rm -rf node_modules package-lock.json && npm install
+#                  └─ 🛑 xoá CẢ file lock -> npm sẽ TỰ TÍNH LẠI version mới nhất
+#                     có thể kéo theo version KHÁC với trước (không giống hệt máy khác)
+```
+
+⚠️ **Cách "xoá cả lock rồi install" chỉ nên dùng khi hết cách khác.** Nó xoá luôn "bản ghi chính xác" đã hoạt động — nếu sau đó version mới có breaking change, bug xuất hiện mà không rõ nguyên nhân do đâu. Ưu tiên thử trước:
+
+```bash
+rm -rf node_modules && npm install    # GIỮ lock file, chỉ cài lại theo đúng version cũ
+```
+
+**Bảo mật:**
+
+```bash
+npm audit                  # liệt kê lỗ hổng đã biết trong dependency
+npm audit fix               # tự sửa những cái sửa được MÀ KHÔNG phá vỡ semver (an toàn)
+npm audit fix --force       # ⚠️ có thể NÂNG CẤP major version -> có thể HỎNG CODE, cần test kỹ sau đó
+```
+
+**yarn / pnpm — điểm khác biệt cần biết:**
+
+```bash
+yarn install --frozen-lockfile   # ⭐ tương đương `npm ci` — KHÔNG được sửa lock file
+pnpm install --frozen-lockfile   # tương tự
+```
+
+| | npm | yarn | pnpm |
+|---|---|---|---|
+| Cách lưu package | Copy riêng cho từng project | Copy riêng | ⭐ **Symlink** tới kho chung trên máy |
+| Tốc độ cài lần 2 | Chậm | Nhanh hơn | ⭐ **Nhanh nhất** |
+| Dung lượng đĩa | Cao (trùng lặp) | Cao | ⭐ **Thấp nhất** (không trùng lặp) |
+
+⇒ `pnpm` tiết kiệm đĩa đáng kể khi máy có nhiều project Node — đáng cân nhắc trên môi trường VDI hạn chế dung lượng.
+
+</details>
+
 ### Python (pip / venv)
 ```bash
 python -m venv venv                    # Tạo môi trường ảo
@@ -4913,6 +5497,76 @@ pip list                               # Liệt kê package đã cài
 pip install --upgrade <pkg>            # Nâng cấp
 deactivate                             # Thoát venv
 ```
+
+<details>
+<summary><b>Bấm xem: giải nghĩa venv — và vì sao PHẢI dùng, không cài thẳng vào máy</b></summary>
+
+⭐ **Tiền đề — venv giải quyết bài toán gì?**
+
+Máy chỉ có **một** bản Python hệ thống. Project A cần `django==3.2`, project B cần `django==4.2` ⇒ cài thẳng vào máy thì **một trong hai sẽ hỏng** vì chỉ giữ được một version tại một thời điểm. `venv` tạo ra **một bản Python + pip riêng biệt cho từng project**, không đụng vào nhau và không đụng vào Python hệ thống.
+
+| Lệnh | Làm gì |
+|---|---|
+| `python -m venv venv` | Tạo môi trường ảo trong thư mục `venv/` |
+| `source venv/bin/activate` | **Kích hoạt** — từ giờ `python`/`pip` trỏ vào bản trong `venv/` |
+| `deactivate` | Thoát, trả `python`/`pip` về bản hệ thống |
+| `pip install <pkg>` | Cài package **vào venv đang active** |
+| `pip freeze` | In ra **version chính xác** đang cài |
+| `pip list` | Danh sách package đã cài (dạng bảng, dễ đọc hơn `freeze`) |
+| `pip install --upgrade <pkg>` | Nâng cấp lên bản mới nhất |
+
+**Bóc lệnh tạo venv:**
+
+```bash
+python -m venv venv
+#      │  │     └─ tên thư mục sẽ chứa venv (thường đặt "venv" hoặc ".venv")
+#      │  └─────── module "venv" có sẵn trong Python (không cần cài thêm)
+#      └────────── -m: chạy MODULE này như một chương trình
+```
+
+⭐ **Làm sao biết đang ở TRONG hay NGOÀI venv?** Dấu nhắc shell **tự đổi**, hiện tên venv trong ngoặc ở đầu dòng:
+
+```
+(venv) user@host:~/project$
+ └──── ⭐ có cái này = đang Ở TRONG venv, pip install sẽ CHỈ ảnh hưởng project này
+```
+
+🛑 **Quên `activate` trước khi `pip install`** là nguyên nhân số 1 của "tôi cài rồi mà sao vẫn báo thiếu module" — package bị cài vào **Python hệ thống** hoặc **venv khác**, không phải venv của project đang mở.
+
+```bash
+which python      # kiểm tra ĐANG dùng python NÀO
+#  Trong venv:    /home/user/project/venv/bin/python  <- đường dẫn nằm TRONG venv
+#  Ngoài venv:    /usr/bin/python3                     <- đường dẫn hệ thống
+```
+
+**`pip freeze` — vì sao là bước bắt buộc trước khi bàn giao/deploy:**
+
+```bash
+pip freeze > requirements.txt
+#            └─ ghi CHÍNH XÁC version đang cài (django==4.2.7, không phải django>=4.0)
+```
+
+⇒ Không có bước này, người khác `pip install -r requirements.txt` với version **thoáng** (`django>=4.0`) có thể cài phải **bản mới hơn** đã có breaking change ⇒ "chạy máy tôi được, máy bạn lỗi".
+
+⚠️ **`pip freeze` liệt kê CẢ dependency của dependency** (transitive) — file `requirements.txt` sinh ra có thể dài, lẫn lộn cái bạn **chủ động cài** với cái bị **kéo theo**. Công cụ như `pip-tools` (`pip-compile`) giải quyết vấn đề này bằng cách tách riêng "cái tôi cần" và "cái được khoá version".
+
+**Cài từ file:**
+
+```bash
+pip install -r requirements.txt
+#               └─ đọc TỪNG DÒNG trong file, cài đúng version ghi trong đó
+
+pip install -r requirements.txt --no-deps
+#                                 └─ ⭐ CHỈ cài đúng những gì liệt kê,
+#                                    KHÔNG tự kéo thêm dependency phụ
+#                                    (dùng khi requirements.txt ĐÃ liệt kê đủ mọi thứ, tránh xung đột version)
+```
+
+⚠️ **`venv` là tính năng của Python 3** (module có sẵn). Python 2 hoặc project cũ dùng công cụ tên `virtualenv` (phải cài riêng) — cú pháp tương tự nhưng là **chương trình khác**.
+
+⚠️ **Đường dẫn venv là TUYỆT ĐỐI, không di chuyển được.** Thư mục `venv/` ghi cứng đường dẫn máy lúc tạo ra nó ⇒ copy `venv/` sang máy khác hoặc đổi tên thư mục cha ⇒ **hỏng**, phải xoá và tạo lại (`rm -rf venv && python -m venv venv && pip install -r requirements.txt`). Đây là lý do `venv/` luôn nằm trong `.gitignore` — không bao giờ commit nó vào Git.
+
+</details>
 
 ---
 
