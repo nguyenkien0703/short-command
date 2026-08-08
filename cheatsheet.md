@@ -6481,6 +6481,79 @@ ufw deny 3306                          # Chặn port
 ufw delete allow 80                    # Xóa rule
 ```
 
+<details>
+<summary><b>Bấm xem: giải nghĩa ufw — và bẫy tự khoá mất SSH của chính mình</b></summary>
+
+**Tiền đề — `ufw` là gì?** **U**ncomplicated **F**ire**w**all — lớp bọc **dễ dùng hơn** cho `iptables`/`nftables` bên dưới (Ubuntu/Debian mặc định dùng). Bạn gõ `ufw allow 80/tcp`, nó tự sinh ra các rule iptables phức tạp phía sau.
+
+| Lệnh | Làm gì |
+|---|---|
+| `ufw status` | Trạng thái + danh sách rule đang bật |
+| `ufw status verbose` | ⭐ Thêm: **default policy**, logging level |
+| `ufw status numbered` | ⭐ Đánh **số thứ tự** — cần số này để `delete` chính xác |
+| `ufw enable` / `disable` | Bật / tắt toàn bộ firewall |
+| `ufw allow <port>/<proto>` | Mở cổng |
+| `ufw allow from <ip>` | Cho phép **toàn bộ port** từ một IP |
+| `ufw allow from <ip> to any port <port>` | Chỉ cho IP đó vào **đúng** port này |
+| `ufw deny <port>` | Chặn cổng |
+| `ufw delete allow <port>` | Xoá rule (ghi **lại đúng** rule đã tạo) |
+
+🛑🛑 **Bẫy nguy hiểm nhất: `ufw enable` TỰ KHOÁ MẤT SSH của chính bạn.**
+
+```bash
+ufw enable
+#    └─ 🛑 nếu CHƯA có rule "allow 22" (hoặc "allow ssh") từ trước,
+#       ufw áp default policy "deny incoming" cho MỌI THỨ, kể cả port bạn đang SSH vào
+#       -> KẾT NỐI SSH HIỆN TẠI BỊ CẮT, và bạn KHÔNG THỂ SSH LẠI để sửa
+```
+
+⇒ **Quy tắc bắt buộc, không có ngoại lệ**: LUÔN `ufw allow ssh` (hoặc đúng port SSH đang dùng) **TRƯỚC KHI** `ufw enable`:
+
+```bash
+ufw allow OpenSSH          # hoặc: ufw allow 22/tcp  (nếu SSH đổi port khác 22, ghi đúng số đó)
+ufw allow ssh              # tương đương, tên "ssh" được ufw hiểu sẵn theo /etc/services
+ufw enable                 # BÂY GIỜ mới bật, sau khi đã chắc SSH được phép
+```
+
+⚠️ Nếu **đã lỡ** enable mà mất SSH: chỉ còn cách vào qua **console vật lý/console cloud provider** (AWS Session Manager, GCP Serial Console...) để `ufw allow 22` từ bên trong.
+
+⭐ **Đọc `ufw status verbose` — hiểu "default deny" để tránh bất ngờ:**
+
+```
+Status: active
+Logging: on (low)
+Default: deny (incoming), allow (outgoing), disabled (routed)
+#         └─ ⭐ MẶC ĐỊNH: mọi kết nối VÀO đều bị CHẶN, trừ khi có rule allow rõ ràng
+#            (đây là mô hình "trắng danh sách" — an toàn hơn "đen danh sách")
+To                         Action      From
+22/tcp                     ALLOW       Anywhere
+```
+
+**Xoá rule — dùng số thứ tự để chính xác, tránh gõ nhầm cú pháp:**
+
+```bash
+ufw status numbered
+# [1] 22/tcp    ALLOW IN    Anywhere
+# [2] 80/tcp    ALLOW IN    Anywhere
+ufw delete 2
+#           └─ ⭐ xoá THEO SỐ — an toàn hơn gõ lại "ufw delete allow 80"
+#              (nếu rule gốc phức tạp, gõ lại dễ SAI CÚ PHÁP và không khớp -> ufw báo không tìm thấy)
+```
+
+⚠️ **Số thứ tự thay đổi sau mỗi lần xoá** — xoá rule `[2]` xong thì rule cũ `[3]` trở thành `[2]`. Luôn `ufw status numbered` **lại** trước khi xoá tiếp rule khác, đừng xoá liên tiếp theo một danh sách số đã lấy từ trước.
+
+**Giới hạn theo IP cụ thể — thu hẹp bề mặt tấn công:**
+
+```bash
+ufw allow from 10.0.0.0/24 to any port 5432
+#              │                       └─ CHỈ port 5432 (Postgres)
+#              └─ ⭐ CHỈ dải mạng nội bộ này được vào — không mở toang ra Internet
+```
+
+⇒ Đây là cách đúng đắn để mở database chỉ cho mạng nội bộ, thay vì `ufw allow 5432` (mở cho **mọi IP trên Internet**).
+
+</details>
+
 ### iptables (chi tiết, thấp cấp hơn)
 ```bash
 iptables -L -n -v                      # Liệt kê rule (kèm số gói tin)
@@ -6493,6 +6566,103 @@ iptables-save > rules.v4               # Lưu rule
 iptables-restore < rules.v4            # Khôi phục rule
 ```
 
+<details>
+<summary><b>Bấm xem: giải nghĩa iptables — chain, target, và vì sao -D xoá nhầm rule âm thầm</b></summary>
+
+**Tiền đề — mô hình chain/target, bắt buộc hiểu trước khi đọc rule:**
+
+Gói tin đi qua **chain** (chuỗi luật) theo thứ tự, mỗi rule trong chain có một **target** (hành động):
+
+| Chain | Áp dụng cho gói tin |
+|---|---|
+| `INPUT` | Đi **VÀO** máy này |
+| `OUTPUT` | Đi **RA** từ máy này |
+| `FORWARD` | Đi **QUA** máy này (khi máy đóng vai trò router) |
+
+| Target | Làm gì |
+|---|---|
+| `ACCEPT` | Cho qua |
+| `DROP` | 🛑 Chặn, **im lặng** không phản hồi gì (bên gửi chờ rồi timeout) |
+| `REJECT` | Chặn, **có gửi phản hồi từ chối** (bên gửi biết ngay là bị từ chối) |
+
+⚠️ **`DROP` vs `REJECT` — chọn sai ảnh hưởng tới TRẢI NGHIỆM debug của người khác:** `DROP` khiến máy nhìn như **không tồn tại** (kẻ dò quét mất nhiều thời gian hơn) — thường dùng cho bảo mật. `REJECT` phản hồi ngay `Connection refused` — thân thiện hơn cho **debug nội bộ** (đồng nghiệp biết ngay là bị chặn, không phải mất mạng).
+
+| Lệnh & cờ | Viết tắt của | Làm gì |
+|---|---|---|
+| `-L` | **L**ist | Liệt kê rule (chỉ đọc) |
+| `-n` | **n**umeric | In **số** IP/port, không tra DNS ngược (nhanh hơn nhiều) |
+| `-v` | **v**erbose | Kèm **counter**: bao nhiêu gói/byte đã khớp rule này |
+| `--line-numbers` | | ⭐ Kèm **số thứ tự** — cần để `-D` chính xác |
+| `-A` | **A**ppend | Thêm rule vào **CUỐI** chain |
+| `-I` | **I**nsert | Chèn rule vào **ĐẦU** chain (hoặc vị trí chỉ định) |
+| `-D` | **D**elete | Xoá rule |
+| `-F` | **F**lush | 🔴 Xoá **TOÀN BỘ** rule trong chain |
+| `-p` | **p**rotocol | `tcp`/`udp`/`icmp` |
+| `--dport` | destination port | Cổng **đích** |
+| `-s` | **s**ource | Địa chỉ **nguồn** |
+| `-j` | **j**ump | Nhảy tới **target** (ACCEPT/DROP/REJECT) |
+
+⭐ **`iptables -L -n -v` — bóc từng mảnh:**
+
+```bash
+iptables -L -n -v --line-numbers
+#         │  │  │  └─ đánh số THỨ TỰ mỗi rule -> cần để xoá đúng rule
+#         │  │  └──── verbose: hiện SỐ GÓI TIN đã khớp mỗi rule (0 = rule này CHƯA từng khớp gói nào)
+#         │  └─────── numeric: KHÔNG tra DNS ngược cho IP -> NHANH HƠN RẤT NHIỀU
+#         └────────── liệt kê (chỉ đọc, an toàn)
+```
+
+⭐ **`-A` vs `-I` — khác nhau vị trí, và vì sao vị trí QUYẾT ĐỊNH kết quả:**
+
+**iptables xử lý rule THEO THỨ TỰ TỪ TRÊN XUỐNG, dừng lại ở rule ĐẦU TIÊN khớp** (không tiếp tục xét các rule bên dưới). Đây là điểm khác biệt căn bản, và là nguồn gốc của rất nhiều rule "thêm rồi mà không có tác dụng":
+
+```bash
+iptables -A INPUT -p tcp --dport 22 -j ACCEPT
+#         └─ A = Append: thêm vào CUỐI
+#            -> nếu phía TRÊN đã có rule "DROP tất cả" thì rule ACCEPT này KHÔNG BAO GIỜ được xét tới
+
+iptables -I INPUT 1 -p tcp --dport 22 -j ACCEPT
+#         │        └─ chèn vào ĐÚNG VỊ TRÍ 1 = ĐẦU chain -> LUÔN được xét TRƯỚC MỌI rule khác
+#         └──────── I = Insert
+```
+
+⇒ **Quy tắc thực hành**: rule `ACCEPT` cho port quan trọng (SSH) nên **`-I` lên đầu**; rule tổng quát (`DROP` cho phần còn lại) đặt **cuối cùng**.
+
+🛑🛑 **`iptables -D INPUT <line-number>` — vì sao là lệnh nguy hiểm cần hiểu kỹ:**
+
+`-D` xoá theo **SỐ THỨ TỰ**, không phải theo nội dung rule. Nếu bạn xem `--line-numbers` **rồi có ai đó (script khác, cron) thêm/xoá rule TRONG LÚC** bạn đang đọc ⇒ số thứ tự **DỊCH CHUYỂN** ⇒ `-D 5` xoá **nhầm rule khác** — và lệnh **chạy thành công, không báo lỗi gì**, im lặng xoá sai.
+
+⇒ **Cách an toàn hơn — xoá theo NỘI DUNG rule thay vì số:**
+
+```bash
+iptables -D INPUT -p tcp --dport 3306 -j DROP
+#         └─ ghi ĐÚNG cú pháp rule cần xoá (giống hệt lúc tạo) -> iptables tự tìm và xoá đúng rule đó
+#            AN TOÀN hơn nhiều so với xoá theo số, vì không phụ thuộc thứ tự hiện tại
+```
+
+⚠️ **Vì sao lỗi này "im lặng"?** `iptables -D <chain> <n>` **không kiểm tra** rule tại vị trí đó có đúng ý định của bạn hay không — nó **chỉ xoá đúng cái đang nằm ở vị trí n tại thời điểm chạy**. Không có bước xác nhận "bạn có chắc muốn xoá rule NÀY không".
+
+🔴 **`iptables -F` — xoá sạch có thể khiến bạn MẤT SSH ngay lập tức:**
+
+```bash
+iptables -F
+#         └─ 🛑 xoá TOÀN BỘ rule trong chain -> nếu default policy đang là DROP,
+#            máy LẬP TỨC từ chối MỌI kết nối, kể cả SSH đang mở -> TỰ KHOÁ MÌNH RA NGOÀI
+```
+
+⇒ Trước khi `-F`, luôn kiểm tra `iptables -L INPUT | head -1` xem **default policy** là gì (ACCEPT hay DROP) — quyết định hậu quả có nghiêm trọng hay không.
+
+**Backup & Restore — làm trước khi thay đổi lớn:**
+
+```bash
+iptables-save > rules-backup-$(date +%F).v4    # lưu TOÀN BỘ rule ra file
+iptables-restore < rules-backup-2026-08-08.v4  # khôi phục nguyên trạng khi lỡ tay
+```
+
+⚠️ **Rule iptables KHÔNG tự động sống sót qua reboot** trừ khi có cấu hình lưu riêng (`iptables-persistent` trên Debian/Ubuntu, hoặc script trong `/etc/rc.local`). Chỉnh xong nhớ lưu lại bằng gói phù hợp cho bản phân phối, không chỉ tin vào rule đang chạy trong RAM.
+
+</details>
+
 ### firewalld (RHEL/CentOS)
 ```bash
 firewall-cmd --state                   # Trạng thái
@@ -6500,6 +6670,91 @@ firewall-cmd --list-all                # Liệt kê rule
 firewall-cmd --add-port=80/tcp --permanent   # Mở port (lưu vĩnh viễn)
 firewall-cmd --reload                  # Áp dụng thay đổi
 ```
+
+<details>
+<summary><b>Bấm xem: giải nghĩa firewalld — zone và runtime vs permanent</b></summary>
+
+⭐ **Tiền đề — khái niệm "zone" là điểm khác biệt lớn nhất so với `ufw`/`iptables` thô:**
+
+`firewalld` nhóm các interface mạng vào **zone** (vùng tin cậy khác nhau — `public`, `internal`, `trusted`...), mỗi zone có bộ rule **riêng**. Cùng một port có thể **mở ở zone này, đóng ở zone khác** — tuỳ interface mạng đó nằm ở zone nào.
+
+```bash
+firewall-cmd --get-active-zones
+#            └─ interface mạng nào đang thuộc zone nào — BƯỚC ĐẦU TIÊN cần xem trước khi mở port
+firewall-cmd --get-default-zone
+#            └─ zone MẶC ĐỊNH áp dụng cho interface chưa gán rõ
+```
+
+| Lệnh | Làm gì |
+|---|---|
+| `--state` | Firewalld có đang chạy không |
+| `--list-all` | Rule của **zone mặc định** |
+| `--list-all --zone=<z>` | Rule của **một zone cụ thể** |
+| `--add-port` | Mở port |
+| `--add-service` | Mở theo **tên dịch vụ đã định nghĩa sẵn** (`http`, `https`, `ssh`...) |
+| `--permanent` | ⭐ Ghi **vĩnh viễn**, nhưng KHÔNG có hiệu lực ngay |
+| `--reload` | Áp dụng các thay đổi `--permanent` vào runtime |
+
+🛑🛑 **Bẫy lớn nhất của firewalld: `--permanent` KHÔNG có hiệu lực ngay — thiếu `--reload` là tưởng đã mở mà chưa mở:**
+
+```bash
+firewall-cmd --add-port=8080/tcp --permanent
+#                                 └─ ⭐ chỉ GHI VÀO CẤU HÌNH TRÊN ĐĨA,
+#                                    RUNTIME (đang chạy trong RAM) CHƯA ĐỔI GÌ CẢ
+#                                    -> port 8080 VẪN CHƯA MỞ ngay lúc này
+firewall-cmd --reload
+#            └─ ⭐ BẮT BUỘC — nạp lại cấu hình permanent VÀO runtime, port MỚI THỰC SỰ mở
+```
+
+⇒ Đây là nguyên nhân của than phiền kinh điển: *"tôi mở port rồi mà vẫn không connect được"* — chỉ vì thiếu bước `--reload`.
+
+⭐ **Hai tầng cấu hình — hiểu rõ để không rối:**
+
+| Tầng | Hiệu lực | Sống qua reboot? |
+|---|---|---|
+| **Runtime** (mặc định, không có `--permanent`) | ⭐ Ngay lập tức | ❌ **Mất khi restart firewalld/reboot** |
+| **Permanent** (có `--permanent`) | Chỉ sau khi `--reload` | ✅ **Giữ được** |
+
+⇒ **Cách làm việc đúng đắn — test trước, ghi vĩnh viễn sau khi chắc chắn:**
+
+```bash
+# BƯỚC 1: mở tạm ở RUNTIME để test ngay, KHÔNG ảnh hưởng cấu hình lâu dài
+firewall-cmd --add-port=8080/tcp
+#            └─ KHÔNG có --permanent -> có hiệu lực NGAY, nhưng MẤT nếu reload/reboot
+
+# BƯỚC 2: test xong, thấy đúng ý -> mới ghi permanent
+firewall-cmd --add-port=8080/tcp --permanent
+firewall-cmd --reload
+```
+
+⚠️ **`--reload` có làm rớt kết nối đang mở không?** Không — `firewalld` reload **giữ nguyên state của các kết nối đã được cho phép trước đó** (connection tracking), không giống việc restart hẳn service. Nhưng vẫn nên làm ở khung giờ ít rủi ro với hệ thống quan trọng.
+
+**Mở theo tên dịch vụ — tiện hơn nhớ số port:**
+
+```bash
+firewall-cmd --list-services                    # dịch vụ đã cho phép ở zone hiện tại
+firewall-cmd --add-service=https --permanent     # tương đương add-port=443/tcp nhưng DỄ ĐỌC hơn
+firewall-cmd --get-services | tr ' ' '\n' | grep -i post
+#                              └─ đổi khoảng trắng thành xuống dòng -> grep dễ tìm dịch vụ theo tên
+```
+
+**Kiểm tra một port cụ thể đã mở hay chưa — nhanh hơn đọc cả `--list-all`:**
+
+```bash
+firewall-cmd --query-port=8080/tcp
+#            └─ trả lời "yes"/"no" trực tiếp, và MÃ THOÁT tương ứng -> dùng được trong script if
+```
+
+**Rich rule — khi cần giới hạn theo IP nguồn cụ thể (tương đương `ufw allow from`):**
+
+```bash
+firewall-cmd --add-rich-rule='rule family="ipv4" source address="10.0.0.0/24" port port="5432" protocol="tcp" accept' --permanent
+firewall-cmd --reload
+```
+
+⚠️ Cú pháp rich rule **dài và dễ gõ sai** — luôn kiểm tra lại bằng `--list-rich-rules` sau khi thêm, và cân nhắc dùng `--permanent` ngay từ đầu với rule phức tạp này (đỡ phải gõ lại hai lần).
+
+</details>
 
 ---
 
@@ -6517,6 +6772,82 @@ nethogs                                # Process nào dùng nhiều băng thông
 dstat                                  # Tổng hợp CPU/disk/net/memory 1 màn hình
 ```
 
+<details>
+<summary><b>Bấm xem: giải nghĩa iostat/mpstat/sar/pidstat — tìm nút thắt hiệu năng</b></summary>
+
+**Tiền đề — vì sao cần bộ công cụ này khi `top`/`htop` không đủ?** `top` cho biết **tổng quan** CPU/RAM, nhưng khi nghi ngờ **disk I/O** hay **một core cụ thể** là nút thắt, cần công cụ **đi sâu vào từng thành phần**. Bộ `sysstat` (chứa `iostat`, `mpstat`, `sar`, `pidstat`) là bộ công cụ chuẩn cho việc này — thường phải cài thêm (`apt/yum install sysstat`).
+
+| Lệnh | Nhìn vào | Trả lời |
+|---|---|---|
+| `iostat -x 1` | **Đĩa** | Disk có phải nút thắt không? |
+| `mpstat -P ALL 1` | **Từng CPU core** | Có core nào bị dồn tải lệch không? |
+| `sar -u` / `sar -r` | CPU / RAM **lịch sử** | Sự cố xảy ra lúc nào, kéo dài bao lâu? |
+| `pidstat 1` | **Từng tiến trình** | Tiến trình NÀO gây ra tải này? |
+
+⭐ **`iostat -x 1` — bóc cột quan trọng nhất: `%util` và `await`:**
+
+```bash
+iostat -x 1
+#         │  └─ lặp lại MỖI 1 GIÂY (dòng đầu tiên là TRUNG BÌNH TỪ LÚC BOOT — thường BỎ QUA, đọc dòng thứ 2 trở đi)
+#         └──── x = extended: thêm các cột chi tiết (await, %util...)
+```
+
+```
+Device  r/s   w/s   rMB/s  wMB/s  await  %util
+sda     2.0   150   0.1    18.5   45.2   98.5
+#                          └─ chờ TRUNG BÌNH (ms) cho MỖI thao tác I/O
+#                                    └─ ⭐ % THỜI GIAN đĩa đang BẬN xử lý -> 98.5% = GẦN NHƯ BÃO HOÀ
+```
+
+| Cột | Ngưỡng đáng lo | Ý nghĩa |
+|---|---|---|
+| `%util` | > 90% liên tục | Đĩa **gần như luôn bận** — nút thắt thật sự |
+| `await` | Vài chục ms trở lên (tuỳ loại đĩa) | Thời gian **chờ** mỗi thao tác — cao = ứng dụng cảm nhận I/O chậm |
+
+⚠️ **`%util` cao KHÔNG TỰ ĐỘNG nghĩa là "cần đĩa nhanh hơn".** Với đĩa SSD/NVMe hỗ trợ **nhiều thao tác song song**, `%util = 100%` vẫn có thể còn dư sức — phải nhìn kèm `await`: `await` **thấp** dù `%util` cao ⇒ đĩa **bận nhưng vẫn đáp ứng nhanh**, chưa hẳn là vấn đề.
+
+⭐ **`mpstat -P ALL 1` — phát hiện "một core gánh hết", điều `top` không thấy rõ:**
+
+```bash
+mpstat -P ALL 1
+#         │    └─ ALL = TỪNG core RIÊNG, không gộp trung bình
+#         └────── P = processor
+```
+
+```
+CPU  %usr  %sys  %iowait  %idle
+ 0   95.0   3.0   0.5      1.5   <- core 0 GẦN NHƯ KIỆT SỨC
+ 1    5.0   1.0   0.2     93.8   <- core 1 hầu như RẢNH
+```
+
+⇒ Load trung bình toàn máy có thể **trông ổn** (vì tính trung bình các core), nhưng nếu ứng dụng **đơn luồng** (chỉ dùng được 1 core), một core bị dồn tải 95% trong khi các core khác rảnh là **nút thắt thật sự** mà `top` gộp chung khó thấy ngay.
+
+⚠️ **`%iowait` cao** (không phải `%usr` hay `%sys`) nghĩa là CPU **đang RẢNH nhưng phải CHỜ dữ liệu từ đĩa** — đây là dấu hiệu **disk là nút thắt**, không phải CPU. Kết luận sai (tưởng CPU yếu, nâng cấp CPU) sẽ **không giải quyết được gì**.
+
+⭐ **`sar` — xem LỊCH SỬ, khác `top`/`iostat` chỉ xem hiện tại:**
+
+```bash
+sar -u 1 5      # u = CPU, lấy 5 mẫu, mỗi mẫu cách nhau 1 giây (giống chạy tạm thời)
+sar -u -f /var/log/sysstat/sa08     # ⭐ đọc LOG LỊCH SỬ đã có sẵn của ngày mùng 8
+#           └─ sar mặc định TỰ GHI log định kỳ (qua cron của gói sysstat) -> tra lại được SỰ CỐ ĐÃ QUA
+```
+
+⇒ Đây là điểm khác biệt cốt lõi với `top`/`htop`/`iostat`: chúng chỉ cho biết **BÂY GIỜ**; `sar` (nếu đã bật ghi log định kỳ từ trước) cho biết **LÚC NÃY, ĐÊM QUA** — sự cố xảy ra rồi mới đi tra thì chỉ `sar` giúp được, các lệnh kia đã "muộn".
+
+**`pidstat` — tìm ĐÚNG tiến trình gây tải, không chỉ biết "máy đang bận":**
+
+```bash
+pidstat 1                       # CPU của TỪNG tiến trình, mỗi giây
+pidstat -d 1                    # d = disk: I/O của TỪNG tiến trình
+pidstat -r 1                    # r = RAM: bộ nhớ của từng tiến trình
+```
+
+💡 Kết hợp: `iostat` nói "đĩa đang bận 98%", nhưng **không nói ai gây ra** ⇒ `pidstat -d` mới trả lời được "tiến trình PID nào đang ghi/đọc đĩa nhiều nhất".
+
+⚠️ Toàn bộ nhóm lệnh `sysstat` **không có sẵn mặc định** trên nhiều distro tối giản (container, minimal install) — phải `apt install sysstat` hoặc `yum install sysstat`, và trên **VDI air-gapped** thì cần tải gói offline trước.
+
+</details>
+
 ### Debug process ở mức system call
 ```bash
 strace -p <PID>                        # Theo dõi syscall của process đang chạy
@@ -6531,6 +6862,110 @@ perf top                               # Hàm nào ngốn CPU nhất (realtime)
 perf record -p <PID> / perf report     # Ghi & phân tích profile CPU
 ```
 
+<details>
+<summary><b>Bấm xem: giải nghĩa strace/ltrace/perf — công cụ cuối cùng khi mọi thứ khác bó tay</b></summary>
+
+⭐ **Tiền đề — khi nào cần "system call" thay vì log ứng dụng?** Khi ứng dụng **treo mà không log gì**, hoặc **chậm bất thường mà không rõ đang chờ cái gì** — nghĩa là vấn đề nằm **ở tầng dưới code ứng dụng**, trong cách nó tương tác với kernel (mở file, đọc mạng, cấp phát bộ nhớ). `strace` cho thấy **chính xác** ứng dụng đang gọi hàm hệ thống nào, chờ cái gì.
+
+| Lệnh & cờ | Viết tắt của | Làm gì |
+|---|---|---|
+| `strace -p <PID>` | trace + **p**rocess | Gắn vào tiến trình **đang chạy**, xem mọi syscall realtime |
+| `strace -f` | **f**ollow | Bám theo cả **tiến trình con** được fork ra |
+| `strace -e trace=<nhóm>` | **e**xpression | Chỉ lọc **một nhóm** syscall (network, file, ...) |
+| `strace -c` | **c**ount | ⭐ Thống kê: syscall nào được gọi **nhiều/lâu nhất** |
+| `ltrace` | library trace | Như strace nhưng theo dõi **lời gọi thư viện** (mức cao hơn kernel) |
+| `lsof -p <PID>` | list open files | File/socket **tiến trình đang giữ mở** |
+| `perf top` | | Hàm nào ngốn CPU nhất, **realtime** |
+
+🛑 **`strace` LÀM CHẬM tiến trình đáng kể** — mỗi syscall bị chặn lại để ghi log rồi mới cho chạy tiếp. Trên production, chỉ dùng **trong thời gian ngắn**, và cân nhắc kỹ trước khi gắn vào tiến trình đang phục vụ traffic thật.
+
+⭐ **`strace -p <PID>` — gắn vào tiến trình ĐANG chạy để xem nó bị TREO ở đâu:**
+
+```bash
+strace -p 12345
+#          └─ PID của tiến trình đang treo/chậm (lấy từ `ps aux` hoặc `pgrep`)
+# Ctrl+C để thoát, KHÔNG làm chết tiến trình đang theo dõi
+```
+
+Đọc kết quả — dòng CUỐI CÙNG (chỗ nó đang treo) là quan trọng nhất:
+
+```
+read(5, ...                    <- ĐANG TREO ở đây: chờ ĐỌC dữ liệu từ file descriptor số 5
+connect(6, {sa_family=AF_INET, sin_port=htons(5432)}, ...   <- ĐANG chờ KẾT NỐI TỚI port 5432 (Postgres!)
+```
+
+⇒ Dòng cuối chưa hoàn thành (không có kết quả trả về ở cuối dòng) chính là **chỗ tiến trình đang bị nghẽn** — thường trả lời ngay câu hỏi "app treo vì chờ database hay chờ gì khác".
+
+⭐ **`-e trace=network` — lọc CHỈ syscall mạng, bớt nhiễu:**
+
+```bash
+strace -f -e trace=network -p 12345
+#       │  └────────────────┘
+#       │  chỉ các syscall LIÊN QUAN MẠNG: connect, sendto, recvfrom...
+#       └─ bám cả TIẾN TRÌNH CON (nhiều app đa luồng/đa tiến trình fork con để xử lý request)
+```
+
+⚠️ **Thiếu `-f` với ứng dụng đa tiến trình** (Nginx, PostgreSQL, nhiều app Python dùng worker) ⇒ `strace` chỉ theo dõi **tiến trình cha**, trong khi việc thật sự xảy ra ở **tiến trình con** ⇒ trace ra **rỗng**, tưởng nhầm là "không có gì xảy ra".
+
+⭐ **`strace -c <cmd>` — thống kê thay vì xem từng dòng, hợp để TÌM nút thắt tổng quan:**
+
+```bash
+strace -c curl -s https://api.company.vn/health > /dev/null
+```
+
+```
+% time     seconds  usecs/call     calls    syscall
+------ ----------- ----------- --------- ------------
+ 65.2    0.021453        2145        10  connect      <- ⭐ TỐN THỜI GIAN NHẤT: connect (khớp với nghi ngờ chậm mạng/DNS)
+ 20.1    0.006612          82        80  read
+```
+
+⇒ Cột `% time` cho biết ngay **loại syscall nào ăn thời gian nhiều nhất** — không cần đọc từng dòng log dài dằng dặc.
+
+**`ltrace` — khi vấn đề nằm ở THƯ VIỆN, không phải kernel:**
+
+```bash
+ltrace -p 12345
+#           └─ theo dõi lời gọi HÀM THƯ VIỆN (malloc, strcpy, các hàm của libc/openssl...)
+#              KHÁC strace: strace theo dõi gọi KERNEL, ltrace theo dõi gọi THƯ VIỆN
+```
+
+⚠️ `ltrace` **chậm hơn `strace` nhiều lần** và **không hoạt động tốt với binary tối ưu tĩnh** (static linking) — vì nó cần "móc" vào lời gọi hàm động (dynamic linking). Với ứng dụng Go/Rust build static, `ltrace` thường **không thấy gì**.
+
+**`lsof -p <PID>` — tiến trình đang mở những gì:**
+
+```bash
+lsof -p 12345
+# COMMAND  PID  USER  FD    TYPE  DEVICE  SIZE/OFF   NODE  NAME
+# myapp   12345 app   5u    IPv4  123456  0t0        TCP   10.0.0.5:5432 (ESTABLISHED)
+#                └─ ⭐ FD (file descriptor) SỐ 5 chính là cột trong strace "read(5, ..." ở trên
+#                     -> NỐI được strace và lsof lại với nhau: FD 5 LÀ kết nối này
+```
+
+⇒ Ghép `strace` (thấy FD nào đang treo) với `lsof` (biết FD đó **là cái gì**) là công thức chẩn đoán mạnh: *"tiến trình đang treo ở `read(5,...)`, và FD 5 chính là kết nối TCP tới Postgres 10.0.0.5:5432"* — kết luận chắc chắn, không phải đoán.
+
+**`/proc/<PID>/limits` — kiểm tra giới hạn hệ thống, nguyên nhân hay bị bỏ sót:**
+
+```bash
+cat /proc/<PID>/limits | grep -i "open files"
+#                                └─ ⭐ giới hạn SỐ FILE DESCRIPTOR tối đa của tiến trình này
+ulimit -a          # giới hạn của SHELL HIỆN TẠI (tiến trình mới tạo từ đây kế thừa các giá trị này)
+```
+
+⚠️ App báo lỗi `too many open files` mà code không có gì sai ⇒ thường là **chạm giới hạn `ulimit -n`** (mặc định nhiều hệ thống chỉ **1024**), không phải app leak file descriptor thật. Kiểm tra bằng lệnh trên trước khi đi soát code.
+
+**`perf top` — hàm nào ngốn CPU, ở mức sâu hơn `top` (tận native function):**
+
+```bash
+perf top
+#        └─ cần quyền root + kernel hỗ trợ perf_events
+#           hiện danh sách HÀM (không phải tiến trình) đang chiếm CPU nhiều nhất, cập nhật realtime
+```
+
+⚠️ `perf` **cần symbol debug** để hiện tên hàm dễ đọc — thiếu debug symbol, kết quả chỉ là **địa chỉ bộ nhớ** khó diễn giải. Đây là công cụ **sâu nhất** trong bộ này, thường chỉ cần tới khi `strace`/`pidstat` đã loại trừ hết các khả năng dễ hơn.
+
+</details>
+
 ### Kiểm tra kết nối & OOM
 ```bash
 ss -s                                  # Tổng hợp số kết nối theo trạng thái
@@ -6540,6 +6975,83 @@ dmesg -T | grep -i "killed process"    # Kiểm tra process bị OOM killer gi�
 grep -i oom /var/log/syslog            # Log OOM (Ubuntu)
 cat /proc/loadavg                      # Load average
 ```
+
+<details>
+<summary><b>Bấm xem: giải nghĩa ss -s, TIME_WAIT, và cách đọc dmesg OOM</b></summary>
+
+| Lệnh & cờ | Viết tắt của | Làm gì |
+|---|---|---|
+| `ss -s` | **s**ummary | Tổng hợp **số lượng** kết nối theo từng trạng thái |
+| `ss -tan` | tcp + **a**ll + numeric | Liệt kê **từng** kết nối TCP (không chỉ tổng hợp) |
+| `state established` | | Lọc theo **trạng thái** kết nối |
+| `dmesg -T` | | Log kernel, **T**imestamp dạng ngày giờ thật |
+| `grep -i oom` | | Tìm dấu vết OOM killer |
+
+**Bảng trạng thái TCP cần biết để đọc `ss`:**
+
+| Trạng thái | Nghĩa |
+|---|---|
+| `ESTABLISHED` | Kết nối **đang hoạt động** bình thường |
+| `TIME_WAIT` | ⭐ Kết nối **đã đóng**, hệ điều hành giữ lại ~60s để đảm bảo gói cuối không lạc |
+| `CLOSE_WAIT` | ⚠️ Phía kia đã đóng, **nhưng ứng dụng của MÌNH chưa gọi `close()`** |
+| `SYN_SENT` | Đang **chờ** bắt tay (đã gửi SYN, chưa nhận SYN-ACK) |
+
+```bash
+ss -s
+# TCP:   1520 (estab 340, closed 1050, orphaned 0, timewait 1040)
+#              │           │                                └─ ⭐ SỐ LƯỢNG TIME_WAIT
+#              └─ đang hoạt động thật sự
+```
+
+⭐ **`TIME_WAIT` nhiều — bình thường hay bất thường?** Phải nhìn theo NGỮ CẢNH:
+
+| Số lượng | Bình thường khi | Đáng lo khi |
+|---|---|---|
+| Vài nghìn, ổn định | Server có **traffic ngắn hạn cao** (web server bình thường) | — |
+| Tăng KHÔNG NGỪNG, gần chạm giới hạn port (~28000-64000) | — | ⚠️ **Sắp cạn port khả dụng**, kết nối mới sẽ bị từ chối |
+
+```bash
+ss -tan state time-wait | wc -l           # đếm CHÍNH XÁC số lượng
+cat /proc/sys/net/ipv4/ip_local_port_range   # dải PORT có thể dùng để mở kết nối MỚI
+```
+
+⇒ `TIME_WAIT` tăng liên tục thường là dấu hiệu ứng dụng đang **mở kết nối mới liên tục thay vì tái sử dụng** (thiếu connection pooling) — không phải lỗi hệ điều hành.
+
+🛑 **`CLOSE_WAIT` nhiều — dấu hiệu RÕ RÀNG NHẤT của resource leak trong CHÍNH ứng dụng của bạn:**
+
+```bash
+ss -tan state close-wait | wc -l
+```
+
+⇒ Trạng thái này nghĩa là: **phía đối tác đã đóng kết nối từ lâu**, nhưng **code ứng dụng của bạn quên gọi `close()`/`disconnect()`** ⇒ tài nguyên (file descriptor, bộ nhớ) **bị giữ lại vĩnh viễn** cho tới khi tiến trình hết file descriptor hoặc bị restart. Đây là bug ở **code**, không sửa được bằng cấu hình hệ thống — phải tìm và fix đoạn code không đóng connection/response body đúng cách.
+
+⭐ **`dmesg -T` — nơi DUY NHẤT ghi lại việc bị OOM killer giết** (đã nhắc sơ ở mục Log hệ thống, đào sâu thêm ở đây):
+
+```bash
+dmesg -T | grep -i "killed process"
+```
+
+```
+[Mon Aug  8 14:32:01 2026] Out of memory: Killed process 12345 (java) total-vm:8500000kB, anon-rss:3900000kB
+#                                                          │              │                └─ RAM THẬT đang dùng lúc bị giết
+#                                                          │              └─ tổng bộ nhớ ẢO đã cấp phát (thường LỚN HƠN RAM thật rất nhiều — bình thường)
+#                                                          └─ ⭐ TÊN + PID tiến trình bị giết -> đây chính là thủ phạm ăn RAM
+```
+
+⭐ **`total-vm` lớn KHÔNG đáng lo — `anon-rss` mới là con số thật.** Nhiều ứng dụng (đặc biệt JVM) xin cấp **bộ nhớ ảo** rất lớn ngay từ đầu nhưng **chưa dùng hết** — kernel chỉ cấp **trang vật lý thật** khi tiến trình thực sự chạm tới (cơ chế "lazy allocation"). `anon-rss` mới là **RAM VẬT LÝ thực sự đang chiếm** — con số quyết định máy có OOM hay không.
+
+**Cách kernel CHỌN nạn nhân khi hết RAM — không phải ngẫu nhiên:**
+
+```bash
+cat /proc/<PID>/oom_score          # điểm "đáng bị giết" của tiến trình — CÀNG CAO càng dễ bị chọn
+cat /proc/<PID>/oom_score_adj      # ⭐ tự CHỈNH điểm: -1000 = MIỄN NHIỄM tuyệt đối với OOM killer
+```
+
+⇒ Kernel tính điểm dựa trên **RAM đang chiếm** (nhiều RAM = điểm cao = dễ bị giết trước) và **có ưu tiên gì đặc biệt không**. Với tiến trình **tuyệt đối không được chết** (ví dụ tiến trình quản trị chính), có thể đặt `oom_score_adj=-1000` để loại khỏi danh sách ứng viên — nhưng dùng cẩn trọng, vì nếu tiến trình đó **chính là** thứ đang ăn hết RAM thì việc miễn nhiễm nó sẽ đẩy OOM killer đi **giết tiến trình KHÁC** thay thế, có thể còn tệ hơn.
+
+⚠️ **`grep -i oom /var/log/syslog`** (Ubuntu/Debian) là cách thay thế khi `dmesg` đã bị **xoay vòng mất** (buffer kernel giới hạn dung lượng, log cũ bị đẩy ra) — `/var/log/syslog` thường giữ log lâu hơn buffer của `dmesg`.
+
+</details>
 
 ---
 
@@ -6576,6 +7088,69 @@ argocd app logs <app>                  # Xem log của app
 # Missing       -> resource chưa được tạo
 ```
 
+<details>
+<summary><b>Bấm xem: giải nghĩa argocd — Synced/Healthy và vì sao hai trạng thái độc lập nhau</b></summary>
+
+⭐ **Tiền đề — ArgoCD giải bài toán gì?** Đây là công cụ **GitOps**: thay vì `kubectl apply` thủ công, bạn **commit YAML vào Git**, ArgoCD **tự động** phát hiện thay đổi và đồng bộ vào cluster. Git trở thành **nguồn sự thật duy nhất** (single source of truth) — muốn biết cluster đang chạy gì, chỉ cần đọc Git, không cần SSH vào cluster.
+
+| Lệnh | Làm gì |
+|---|---|
+| `argocd login <server>` | Đăng nhập vào ArgoCD server (không phải cluster K8s) |
+| `argocd app list` | Danh sách mọi Application đang quản lý |
+| `argocd app get <app>` | Chi tiết: trạng thái, resource con, lịch sử |
+| `argocd app sync <app>` | ⭐ **Ép đồng bộ** cluster theo đúng Git ngay bây giờ |
+| `argocd app diff <app>` | Khác biệt **Git vs Cluster** — trước khi sync |
+| `argocd app rollback <app> <rev>` | Quay lại revision cũ |
+| `argocd app set --sync-policy automated` | Bật **tự động sync** khi Git đổi (không cần gõ `sync` tay) |
+
+⭐⭐ **Synced/OutOfSync và Healthy/Degraded — HAI TRỤC ĐỘC LẬP, đây là điều hay bị hiểu lầm nhất:**
+
+Mới nhìn, "app khoẻ" tưởng chỉ có một trạng thái. Thực ra ArgoCD theo dõi **HAI câu hỏi khác nhau, không phụ thuộc nhau**:
+
+| Trục | Câu hỏi | Giá trị |
+|---|---|---|
+| **Sync Status** | *"Cluster có GIỐNG Git không?"* | `Synced` / `OutOfSync` |
+| **Health Status** | *"Resource đang chạy có TỐT không?"* | `Healthy` / `Degraded` / `Progressing` / `Missing` |
+
+⇒ Bốn tổ hợp có thể xảy ra, và **mỗi tổ hợp cần một hành động khác nhau**:
+
+| Sync | Health | Ý nghĩa | Cần làm gì |
+|---|---|---|---|
+| `Synced` | `Healthy` | ✅ Mọi thứ ổn | Không cần làm gì |
+| `Synced` | `Degraded` | 🛑 Cluster **ĐÚNG** như Git yêu cầu, nhưng bản thân config đó **có vấn đề** (image sai, thiếu resource) | Sửa **code trong Git**, không phải sync lại |
+| `OutOfSync` | `Healthy` | Ai đó sửa tay trên cluster (hoặc Git vừa đổi mà chưa sync), nhưng **hiện tại vẫn chạy tốt** | Sync để đồng bộ lại, hoặc điều tra ai sửa tay |
+| `OutOfSync` | `Degraded` | Cả hai vấn đề cùng lúc | Ưu tiên xem **diff** trước khi sync mù quáng |
+
+🛑 **Bẫy hay gặp nhất: thấy `OutOfSync` liền bấm `sync` ngay mà KHÔNG xem `diff` trước.** Nếu ai đó vừa sửa tay trên cluster để **chữa cháy khẩn cấp** (ví dụ tăng replicas gấp vì đang quá tải), `sync` sẽ **ghi đè** về đúng Git — có thể **xoá mất bản vá khẩn cấp đó**, đưa hệ thống về lại trạng thái gây ra sự cố ban đầu.
+
+```bash
+argocd app diff myapp
+#               └─ ⭐ LUÔN chạy lệnh này TRƯỚC "sync" khi thấy OutOfSync bất ngờ
+#                  để hiểu RÕ đang có khác biệt gì, không sync mù quáng
+```
+
+⭐ **`--prune` — vì sao mặc định sync KHÔNG xoá resource thừa:**
+
+```bash
+argocd app sync myapp                # chỉ THÊM/SỬA theo Git, KHÔNG xoá resource không còn trong Git
+argocd app sync myapp --prune        # 🛑 CỘNG THÊM: XOÁ resource nào KHÔNG CÒN khai báo trong Git
+```
+
+⇒ Đây là thiết kế **an toàn theo mặc định**: xoá một Deployment khỏi file YAML rồi commit, ArgoCD sẽ **không tự xoá** Deployment đó khỏi cluster trừ khi có `--prune`. Bảo vệ khỏi việc lỡ tay xoá file YAML thì kéo theo mất luôn resource thật.
+
+**`argocd app wait` — dùng trong CI/CD để chờ deploy XONG mới báo pipeline thành công:**
+
+```bash
+argocd app sync myapp
+argocd app wait myapp --health --timeout 300
+#               │      └───────┘  └─ chờ tối đa 300 giây rồi BỎ CUỘC (không treo vô hạn)
+#               └─ chờ tới khi Health = Healthy (không chỉ chờ Sync xong)
+```
+
+⚠️ **Chờ `--health`, không chỉ chờ sync xong** — vì `sync` chỉ nghĩa là "đã GỬI lệnh apply lên K8s", **không đảm bảo** pod mới đã thực sự Ready. Pipeline CI nếu chỉ đợi `sync` xong đã coi là thành công, có thể báo "deploy OK" trong khi pod đang `CrashLoopBackOff`.
+
+</details>
+
 ### GitOps qua kubectl (khi cài ArgoCD dạng CRD)
 ```bash
 kubectl get applications -n argocd     # Liệt kê ArgoCD app
@@ -6590,6 +7165,73 @@ flux reconcile kustomization <name>    # Ép đồng bộ ngay
 flux get sources git                   # Xem git source
 flux logs                              # Xem log controller
 ```
+
+<details>
+<summary><b>Bấm xem: giải nghĩa CRD của ArgoCD và FluxCD — dùng khi không có argocd CLI</b></summary>
+
+**Tiền đề — ArgoCD Application là CRD, nghĩa là gì?** ArgoCD **mở rộng** Kubernetes bằng một loại resource mới tên `Application` (CRD = Custom Resource Definition — "định nghĩa loại resource tuỳ chỉnh"). Vì nó **là** một resource K8s bình thường, mọi lệnh `kubectl` quen thuộc đều dùng được — hữu ích khi **không cài `argocd` CLI riêng** hoặc chỉ có quyền `kubectl`.
+
+```bash
+kubectl get applications -n argocd
+#                          └─ ⭐ CRD của ArgoCD sống trong namespace "argocd" theo mặc định
+#                             (khác các app THẬT của bạn — chúng nằm ở namespace RIÊNG như "ai-hub")
+
+kubectl get app <app> -n argocd -o yaml
+#            └─ "app" là TÊN TẮT (shortname) của "applications" — cả hai đều gõ được
+```
+
+⭐ **Đọc trạng thái NGAY TỪ YAML — không cần CLI `argocd` cũng biết Synced/Healthy:**
+
+```bash
+kubectl get app myapp -n argocd -o jsonpath='{.status.sync.status} {.status.health.status}'
+#                                              └────────┬────────┘ └─────────┬─────────┘
+#                                              Sync Status (Synced/OutOfSync)  Health Status (Healthy/Degraded)
+```
+
+⇒ Đây chính là **hai trục độc lập** đã giải thích ở mục `argocd CLI` phía trên — trong YAML thô, chúng nằm ở `.status.sync.status` và `.status.health.status` riêng biệt, xác nhận lại đúng là hai khái niệm khác nhau chứ không phải một.
+
+```bash
+kubectl describe app myapp -n argocd
+#                └─ ⭐ mục "Conditions" ở cuối = LÝ DO chi tiết khi sync/health có vấn đề
+#                   (giống hệt tinh thần "luôn đọc Events" đã nói ở mục Debug pod của kubectl)
+
+kubectl -n argocd get pods
+#           └─ kiểm tra CHÍNH ArgoCD có khoẻ không (application-controller, repo-server, api-server...)
+#              trước khi nghi ngờ app CỦA BẠN có vấn đề — đôi khi ArgoCD chính nó mới là thứ đang lỗi
+```
+
+⚠️ **Sửa trực tiếp CRD `Application` bằng `kubectl edit`** kỹ thuật vẫn chạy được, nhưng đi ngược tinh thần GitOps — cấu hình của Application (trỏ tới repo nào, path nào) **nên nằm trong Git**, không sửa tay qua `kubectl`. Việc `kubectl edit` CRD Application chỉ nên dùng để **debug/xem**, không nên dùng để **thay đổi lâu dài**.
+
+**Lấy mật khẩu admin ban đầu — bước đầu tiên sau khi cài mới ArgoCD:**
+
+```bash
+argocd admin initial-password -n argocd
+#            └─ đọc TỪ Secret mà ArgoCD tự sinh khi cài lần đầu
+# (cách thay thế không cần argocd CLI, đọc thẳng qua kubectl:)
+kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d
+```
+
+⚠️ **Secret này chỉ tồn tại tới lần đầu tiên đổi mật khẩu** — sau khi đổi, ArgoCD tự xoá Secret đó. Không tìm thấy secret này ⇒ nghĩa là mật khẩu **đã được đổi rồi**, không phải lỗi.
+
+**FluxCD — công cụ GitOps thay thế, cách tiếp cận khác ArgoCD:**
+
+⚠️ Khác biệt triết lý: ArgoCD có **UI + Application CRD tập trung**, coi trọng khả năng quan sát trực quan. FluxCD **thuần CLI/CRD**, chia nhỏ thành nhiều loại resource (`GitRepository`, `Kustomization`, `HelmRelease`) — kết hợp linh hoạt hơn nhưng **không có UI mặc định** đi kèm.
+
+```bash
+flux get kustomizations
+#        └─ tương đương "argocd app list" nhưng cho Flux — Kustomization là đơn vị đồng bộ chính
+
+flux reconcile kustomization myapp
+#    └─ ⭐ reconcile = ÉP đồng bộ NGAY, tương đương "argocd app sync"
+#       (không có reconcile thì Flux tự đồng bộ theo CHU KỲ định sẵn, mặc định thường VÀI PHÚT một lần)
+
+flux get sources git             # xem Git repository đang theo dõi, commit nào đang được dùng
+flux logs                        # log của controller — nơi tra khi Flux không đồng bộ như mong đợi
+```
+
+⇒ Cả ArgoCD và FluxCD đều theo cùng một triết lý gốc GitOps: **Git là nguồn sự thật**, công cụ chỉ là **cầu nối kéo trạng thái Git vào cluster** — hiểu triết lý này thì chuyển đổi giữa hai công cụ không khó, dù cú pháp lệnh khác nhau.
+
+</details>
 
 ---
 
