@@ -5592,6 +5592,120 @@ aws ecs list-services --cluster <name>         # Liệt kê ECS service
 aws --profile <profile> <command>      # Dùng profile khác
 ```
 
+<details>
+<summary><b>Bấm xem: giải nghĩa AWS CLI — profile, sts, và cách tránh xoá nhầm production</b></summary>
+
+**Tiền đề — AWS CLI lấy credential từ đâu?** Nó tìm theo **thứ tự ưu tiên**: cờ dòng lệnh → biến môi trường (`AWS_ACCESS_KEY_ID`...) → file `~/.aws/credentials` → IAM role (nếu chạy trên EC2/EKS). Không hiểu thứ tự này ⇒ hay bối rối "tôi đổi profile rồi mà sao vẫn login tài khoản cũ" (do biến môi trường đang **đè lên** file credentials).
+
+| Lệnh/cờ | Làm gì |
+|---|---|
+| `aws configure` | Thiết lập access key + secret + region + output format |
+| `aws configure list` | Xem cấu hình **đang thực sự áp dụng**, và **nguồn** của từng giá trị |
+| `--profile` | Dùng bộ credential khác (nhiều tài khoản AWS trên một máy) |
+| `sts get-caller-identity` | ⭐ "Tôi đang là ai" |
+| `--filters` | Lọc kết quả ngay tại server (nhanh hơn lọc bằng `jq` phía client) |
+| `--dry-run` | (một số lệnh) chỉ kiểm tra quyền, không thực thi |
+
+⭐ **`aws sts get-caller-identity` — lệnh đầu tiên PHẢI chạy trước MỌI thao tác nguy hiểm:**
+
+```bash
+aws sts get-caller-identity
+# {
+#   "UserId": "AIDAI...",
+#   "Account": "123456789012",   <- ⭐ SỐ TÀI KHOẢN — kiểm tra đây có phải PROD không
+#   "Arn": "arn:aws:iam::123456789012:user/kiennv"
+# }
+```
+
+🛑 **Đây là bước phòng sự cố quan trọng nhất khi làm việc với nhiều tài khoản AWS** (dev/staging/prod tách riêng). Không kiểm tra trước ⇒ chạy `terraform destroy` hay `aws ec2 terminate-instances` **trên nhầm tài khoản** — không có `Ctrl+Z` cho việc này.
+
+⭐ **`--profile` — quản lý nhiều tài khoản trên một máy:**
+
+```bash
+cat ~/.aws/config
+# [profile dev]
+# region = ap-southeast-1
+# [profile prod]
+# region = ap-southeast-1
+
+aws --profile prod sts get-caller-identity      # kiểm tra ĐÚNG profile trước khi làm gì
+aws --profile prod s3 ls
+```
+
+💡 Đặt biến môi trường để khỏi gõ `--profile` mỗi lệnh trong một phiên làm việc: `export AWS_PROFILE=prod` — nhưng **cẩn thận quên đã set**, dễ chạy nhầm ở phiên terminal khác đang mở.
+
+**S3 — ba lệnh dễ nhầm khi copy hàng loạt:**
+
+```bash
+aws s3 cp file.txt s3://mybucket/           # copy MỘT file
+aws s3 cp ./localdir s3://mybucket/ --recursive   # ⭐ copy thư mục PHẢI có --recursive
+aws s3 sync ./localdir s3://mybucket/       # ⭐ đồng bộ: chỉ gửi phần KHÁC BIỆT, không gửi lại hết
+```
+
+⚠️ **`cp --recursive` vs `sync`**: `cp` copy đè, không xoá file thừa ở đích. `sync` **giống `rsync`** — chỉ đẩy phần thay đổi, và với `--delete` sẽ **xoá ở đích** những gì không còn ở nguồn:
+
+```bash
+aws s3 sync ./dir s3://mybucket/ --delete
+#                                 └─ 🛑 XOÁ trên S3 những file KHÔNG CÒN ở local
+#                                    -> LUÔN thử --dryrun trước:
+aws s3 sync ./dir s3://mybucket/ --delete --dryrun
+```
+
+**EC2 — lọc và các trạng thái:**
+
+```bash
+aws ec2 describe-instances \
+  --filters "Name=instance-state-name,Values=running" \
+  --query 'Reservations[].Instances[].[InstanceId,Tags[?Key==`Name`].Value|[0]]' \
+  --output table
+#  │        │                                        │                └─ [0]: lấy PHẦN TỬ ĐẦU
+#  │        │                                        │                   (JMESPath filter trả về mảng)
+#  │        │                                        └─ lọc Tags theo Key="Name"
+#  │        └─ ⭐ JMESPath: ngôn ngữ truy vấn RIÊNG của AWS CLI (không phải jq, cú pháp khác)
+#  └────────── lọc NGAY TẠI SERVER AWS, nhanh hơn tải hết về rồi lọc bằng jq
+```
+
+⚠️ **`--filters` (lọc ở server) khác `--query` (lọc kết quả trả về, dùng JMESPath).** `--filters` chỉ áp dụng được cho **field mà AWS API hỗ trợ lọc** (khác nhau tuỳ dịch vụ); `--query` lọc được **bất kỳ field nào** trong JSON trả về nhưng **tải hết dữ liệu về trước** rồi mới cắt.
+
+⚠️ **`start-instances`/`stop-instances` KHÔNG xoá gì** (dữ liệu ổ đĩa vẫn còn — trừ instance dùng instance-store). Nhưng `terminate-instances` **xoá vĩnh viễn** trừ khi ổ đĩa gắn `DeleteOnTermination=false`. Ba lệnh nghe gần giống nhau nhưng hậu quả khác hẳn:
+
+| Lệnh | Ảnh hưởng |
+|---|---|
+| `stop-instances` | Tắt máy, **giữ** ổ đĩa, vẫn tính phí lưu trữ |
+| `terminate-instances` | 🔴 **Xoá hẳn** máy (và ổ đĩa, trừ khi cấu hình giữ lại) |
+
+**ECR — login trước khi push/pull image riêng của công ty:**
+
+```bash
+aws ecr get-login-password --region ap-southeast-1 \
+  | docker login --username AWS --password-stdin 123456789012.dkr.ecr.ap-southeast-1.amazonaws.com
+#                 │                └─ ⭐ đọc password từ ĐẦU VÀO CHUẨN, không hiện trong lịch sử lệnh
+#                 └─ user luôn CỐ ĐỊNH là chữ "AWS" cho ECR (không phải tên user thật)
+```
+
+⚠️ Token đăng nhập ECR **hết hạn sau 12 giờ** — script chạy dài ngày phải **login lại định kỳ**, không phải login một lần là dùng mãi.
+
+**EKS — lấy kubeconfig:**
+
+```bash
+aws eks update-kubeconfig --name mycluster --region ap-southeast-1 --profile prod
+#                                                                    └─ ⭐ nhớ đúng profile
+#                                                                       (kubeconfig sẽ NHỚ profile này
+#                                                                        để lần sau kubectl tự gọi lại)
+```
+
+⚠️ Lệnh này **ghi thêm** vào `~/.kube/config` (không xoá context cũ) ⇒ dùng xong nhiều cluster, luôn `kubectl config current-context` để chắc đang đứng đúng chỗ (xem lại mục Context & Cluster của kubectl phía trên).
+
+**CloudWatch Logs:**
+
+```bash
+aws logs tail /aws/lambda/myfunction --follow --since 10m
+#                                     │        └─ chỉ log 10 phút gần đây
+#                                     └───────── bám realtime (giống kubectl logs -f)
+```
+
+</details>
+
 ### Google Cloud (gcloud)
 ```bash
 gcloud auth login                      # Đăng nhập
@@ -5606,6 +5720,95 @@ gcloud logging read "severity>=ERROR" --limit 20   # Đọc log lỗi
 gcloud auth configure-docker           # Cấu hình Docker để push lên GCR/Artifact Registry
 ```
 
+<details>
+<summary><b>Bấm xem: giải nghĩa gcloud — project vs account, hai khái niệm hay nhầm</b></summary>
+
+⭐ **Tiền đề — `gcloud` có HAI khái niệm "đang là ai" tách biệt, đây là nguồn gốc nhầm lẫn phổ biến nhất:**
+
+| | **Account** (tài khoản) | **Project** (dự án) |
+|---|---|---|
+| Là gì | Email đăng nhập Google | Nơi chứa tài nguyên (VM, GKE, IP...) và **tính phí** |
+| Lệnh xem | `gcloud auth list` | `gcloud config get-value project` |
+| Lệnh đổi | `gcloud config set account <email>` | `gcloud config set project <id>` |
+
+🛑 Đăng nhập đúng tài khoản (**account**) nhưng **project đang trỏ sai** ⇒ mọi lệnh `gcloud compute ...` chạy **nhầm chỗ** hoàn toàn — tạo VM ở dự án dev trong khi tưởng đang ở prod. Luôn kiểm tra CẢ HAI trước khi làm việc quan trọng:
+
+```bash
+gcloud config list
+# [core]
+# account = kiennv@company.vn
+# project = company-prod-123456      <- ⭐ ĐỌC KỸ dòng này trước mọi lệnh nguy hiểm
+```
+
+| Lệnh | Làm gì |
+|---|---|
+| `gcloud auth login` | Đăng nhập bằng **trình duyệt** (cần mở được web — khó trên VDI air-gapped) |
+| `gcloud auth login --no-launch-browser` | ⭐ In ra **URL + mã** để copy sang máy có mạng đăng nhập hộ |
+| `gcloud auth activate-service-account` | Đăng nhập bằng **file key JSON** — dùng trong CI/CD, script tự động |
+| `gcloud config configurations list` | ⭐ Liệt kê **bộ cấu hình đã lưu** (nhiều account+project cùng lúc) |
+| `gcloud config configurations activate <name>` | Chuyển sang bộ cấu hình khác |
+
+⭐ **`--no-launch-browser` — cứu tinh cho môi trường VDI/server không có trình duyệt:**
+
+```bash
+gcloud auth login --no-launch-browser
+#                  └─ thay vì TỰ MỞ trình duyệt (sẽ lỗi trên server/VDI air-gapped),
+#                     in ra một URL + LỆNH để bạn copy sang máy CÓ mạng, đăng nhập,
+#                     rồi dán MÃ XÁC THỰC ngược lại vào đây
+```
+
+**Multiple configurations — làm việc với nhiều account/project không phải đổi qua đổi lại thủ công:**
+
+```bash
+gcloud config configurations create prod-config
+gcloud config set account kiennv-prod@company.vn --configuration=prod-config
+gcloud config set project company-prod-123456 --configuration=prod-config
+
+gcloud config configurations activate prod-config    # chuyển TOÀN BỘ (account+project) một lệnh
+gcloud config configurations list                     # xem đang active cái nào
+```
+
+⇒ Cách này an toàn hơn nhiều so với chỉ đổi `project` một mình — tránh ca "project đúng nhưng account vẫn của môi trường khác".
+
+**Compute & GKE:**
+
+```bash
+gcloud compute instances list --filter="status=RUNNING"
+#                              └─ cú pháp lọc RIÊNG của gcloud, không phải JMESPath (khác AWS)
+
+gcloud compute ssh myinstance --zone=asia-southeast1-a
+#                              └─ ⚠️ GCP yêu cầu chỉ định ZONE (không tự đoán như AWS region)
+#                                 -> thiếu cờ này, gcloud có thể hỏi lại hoặc báo lỗi tuỳ cấu hình
+
+gcloud container clusters get-credentials mycluster --region asia-southeast1
+#                                                     └─ region CHO CỤM REGIONAL
+#                                                        (cụm zonal thì dùng --zone thay vì --region)
+```
+
+⚠️ **`--zone` vs `--region`** — GKE có hai loại cụm: **zonal** (một vùng khả dụng, rẻ hơn) dùng `--zone`; **regional** (trải nhiều vùng, chịu lỗi tốt hơn) dùng `--region`. Gõ nhầm cờ ⇒ báo lỗi "cluster not found" dù cluster có thật.
+
+**Logging:**
+
+```bash
+gcloud logging read "severity>=ERROR" --limit 20 --format=json
+#                    └─ cú pháp lọc log RIÊNG của GCP (Cloud Logging query language)
+#                       khác hẳn cú pháp PromQL hay LogQL đã gặp ở mục Monitoring
+```
+
+⚠️ Không có `--limit`, lệnh này có thể kéo về **rất nhiều** dòng nếu hệ thống log nhiều — luôn giới hạn khi thăm dò lần đầu.
+
+**Docker/Artifact Registry:**
+
+```bash
+gcloud auth configure-docker
+#      └─ cấu hình MỘT LẦN để `docker push/pull` tới GCR/Artifact Registry
+#         tự động dùng credential của gcloud, KHÔNG cần `docker login` riêng
+```
+
+⚠️ Lệnh trên sửa file `~/.docker/config.json`, thêm credential helper — nếu sau đó gặp lỗi push lạ, kiểm tra file này có đúng cấu hình không bị công cụ khác ghi đè.
+
+</details>
+
 ### Azure CLI (az)
 ```bash
 az login                               # Đăng nhập
@@ -5617,6 +5820,95 @@ az aks get-credentials --name <cluster> -g <rg>   # Kubeconfig cho AKS
 az acr login --name <registry>         # Login Azure Container Registry
 az group list -o table                 # Liệt kê resource group
 ```
+
+<details>
+<summary><b>Bấm xem: giải nghĩa az — subscription là khái niệm tương đương project của GCP</b></summary>
+
+**Tiền đề — cấu trúc phân cấp của Azure, cần biết để đọc lệnh:**
+
+```
+Tenant (tổ chức)
+  └─ Subscription (đơn vị TÍNH PHÍ — tương đương "project" của GCP, "account" của AWS)
+       └─ Resource Group (nhóm chứa resource — Azure BẮT BUỘC mọi resource thuộc 1 group)
+            └─ Resource (VM, Storage Account...)
+```
+
+⭐ **Khác biệt lớn nhất so với AWS/GCP: MỌI resource của Azure PHẢI nằm trong một Resource Group.** Đây không phải tuỳ chọn — khi tạo VM, Azure luôn hỏi (hoặc cần chỉ định) `--resource-group` (viết tắt `-g`). Xoá cả resource group là **xoá sạch mọi thứ bên trong nó cùng lúc** — cách nhanh nhất để dọn một môi trường test, nhưng cũng nguy hiểm nhất nếu gõ nhầm tên.
+
+| Lệnh | Làm gì |
+|---|---|
+| `az login` | Đăng nhập (mở trình duyệt, hoặc `--use-device-code` cho máy không có trình duyệt) |
+| `az account show` | ⭐ Subscription **đang active** |
+| `az account list` | Mọi subscription mà account này có quyền |
+| `az account set --subscription <id>` | Chuyển subscription |
+| `-g` / `--resource-group` | Chỉ định Resource Group |
+| `-o table` | Định dạng bảng dễ đọc (thay JSON mặc định) |
+
+⭐ **`--use-device-code` — như `--no-launch-browser` của gcloud, dùng khi không có trình duyệt:**
+
+```bash
+az login --use-device-code
+#         └─ in ra MÃ, bạn nhập mã đó vào https://microsoft.com/devicelogin trên MÁY KHÁC CÓ MẠNG
+```
+
+**Kiểm tra trước khi làm việc nguy hiểm — giống hệt tinh thần `aws sts get-caller-identity`:**
+
+```bash
+az account show --output table
+#                └─ ⭐ LUÔN kiểm tra SubscriptionName trước khi az vm delete / az group delete
+```
+
+**Resource Group — hiểu rõ trước khi xoá:**
+
+```bash
+az group list -o table                    # liệt kê mọi resource group
+az group show -n my-rg                    # chi tiết một group
+az resource list -g my-rg -o table         # ⭐ xem TRƯỚC những gì nằm trong group này
+```
+
+🛑 **`az group delete -n my-rg` xoá TOÀN BỘ resource bên trong, không hỏi lại từng cái.** Đây là cách nhanh nhất dọn một môi trường thử nghiệm, nhưng cũng là lệnh nguy hiểm nhất trong Azure CLI — luôn `az resource list -g <rg>` xem trước.
+
+```bash
+az group delete -n my-rg --yes --no-wait
+#                         │     └─ chạy NGẦM, trả lệnh lại ngay (không chờ xoá xong)
+#                         └────── bỏ qua câu hỏi xác nhận — ⚠️ CHỈ dùng khi CHẮC CHẮN đúng group
+```
+
+**VM:**
+
+```bash
+az vm list -o table
+az vm start --name myvm -g my-rg           # -g bắt buộc: Azure cần biết VM nằm ở group nào
+az vm deallocate --name myvm -g my-rg      # ⭐ khác `stop` — xem bảng dưới
+```
+
+⚠️ **`az vm stop` vs `az vm deallocate` — khác biệt về TIỀN, không chỉ về trạng thái:**
+
+| Lệnh | Máy tắt? | Vẫn tính phí **compute**? | Vẫn giữ IP public? |
+|---|---|---|---|
+| `az vm stop` | ✅ | 🛑 **CÓ** (tài nguyên vẫn được giữ chỗ) | ✅ Giữ |
+| `az vm deallocate` | ✅ | ✅ **Không** (giải phóng phần cứng) | ⚠️ Có thể mất IP động |
+
+⇒ Muốn thật sự **ngừng tính phí** khi tắt VM tạm thời (qua đêm, cuối tuần), phải dùng **`deallocate`**, không phải `stop`.
+
+**AKS (Kubernetes trên Azure):**
+
+```bash
+az aks get-credentials --name mycluster -g my-rg
+#                                         └─ ⚠️ vẫn cần -g, vì AKS cũng nằm trong resource group
+```
+
+**ACR (Container Registry):**
+
+```bash
+az acr login --name myregistry
+#             └─ ⭐ chỉ cần TÊN registry, az tự suy ra domain đầy đủ (myregistry.azurecr.io)
+#                az login trước đó đã có sẵn quyền -> KHÔNG cần thêm docker login riêng
+```
+
+⚠️ `az acr login` cần **Docker daemon đang chạy** trên máy (nó gọi `docker login` phía sau) — báo lỗi nếu Docker chưa khởi động, dễ nhầm tưởng lỗi xác thực Azure.
+
+</details>
 
 ---
 
@@ -5638,6 +5930,87 @@ curl -s 'http://localhost:9090/api/v1/targets' | jq '.data.activeTargets[].healt
 # rate(container_cpu_usage_seconds_total[5m])   -> CPU container
 ```
 
+<details>
+<summary><b>Bấm xem: giải nghĩa PromQL từ số 0 — rate(), histogram_quantile</b></summary>
+
+**Tiền đề — Prometheus lưu dữ liệu khác database thường thế nào?** Nó lưu **time series**: mỗi metric là một **dòng số theo thời gian**, có nhãn (label) để phân biệt (`method="GET"`, `pod="api-1"`). PromQL là ngôn ngữ **truy vấn** những dòng số đó — khác hẳn SQL, quen tay SQL sẽ thấy lạ lẫm ban đầu.
+
+| API endpoint | Làm gì |
+|---|---|
+| `/api/v1/query` | Query tại **một thời điểm** (mặc định: bây giờ) |
+| `/api/v1/query_range` | Query theo **khoảng thời gian** — vẽ được biểu đồ |
+| `/api/v1/targets` | Danh sách **mục tiêu** Prometheus đang scrape (thu thập) |
+
+```bash
+curl -s 'http://localhost:9090/api/v1/query?query=up' | jq
+#                                          └─ tham số "query" chính là câu PromQL, URL-encode nếu có ký tự đặc biệt
+curl -s 'http://localhost:9090/api/v1/targets' | jq '.data.activeTargets[] | {job: .labels.job, health: .health}'
+#                                                     └─ ⭐ .health = "up"/"down": target đang SỐNG hay MẤT KẾT NỐI
+```
+
+**`up` — metric đầu tiên cần biết:** Prometheus **tự sinh** metric này cho mọi target — `1` = scrape thành công (service đang trả metric), `0` = scrape thất bại (service sập **hoặc** không mở được cổng metric).
+
+⭐ **`rate()` — hàm quan trọng nhất PromQL, và lý do phải dùng nó thay vì đọc số thô:**
+
+Metric kiểu **counter** (`http_requests_total`) chỉ **tăng dần**, không bao giờ giảm (trừ khi service restart về 0). Đọc **giá trị thô** của counter (ví dụ "đã có 58 triệu request") **vô nghĩa** để biết tải hiện tại — phải biết **tốc độ tăng**.
+
+```promql
+rate(http_requests_total[5m])
+#    └──────────────────────┘└─ [5m]: cửa sổ THỜI GIAN tính trung bình — 5 PHÚT gần nhất
+#    └─ counter cần tính rate
+# => kết quả: SỐ REQUEST MỖI GIÂY, trung bình trong 5 phút qua
+```
+
+🛑 **`[5m]` không phải "làm mượt biểu đồ cho đẹp"** — nó là **cửa sổ tính trung bình bắt buộc**. Cửa sổ **quá ngắn** (`[30s]`) ⇒ đồ thị **giật cục**, nhiễu theo từng lần scrape. Cửa sổ **quá dài** (`[1h]`) ⇒ **san phẳng mất** những đợt tăng đột biến ngắn (spike) — cái mà bạn thường **cần thấy nhất** khi debug sự cố.
+
+⚠️ **Cửa sổ `[5m]` phải LỚN HƠN khoảng thời gian scrape** (`scrape_interval`, thường 15s-30s) — ít nhất gấp 4 lần, để luôn có đủ ít nhất 2 điểm dữ liệu để tính rate. Cửa sổ quá sát với scrape_interval sẽ ra kết quả **rỗng hoặc `NaN`** thất thường.
+
+⭐ **`sum by (...)` — gộp nhiều dòng số lại theo nhãn:**
+
+```promql
+sum(rate(http_requests_total[5m])) by (status)
+#                                    └─ GỘP tất cả pod/instance lại, CHỈ giữ phân biệt theo "status"
+# => ra: {status="200"}: 120  {status="500"}: 3   -- tổng request/giây theo TỪNG mã lỗi
+```
+
+⚠️ Không có `sum by`, kết quả sẽ là **hàng chục dòng riêng** (mỗi pod một dòng) — không nhìn ra được bức tranh tổng.
+
+⭐ **`histogram_quantile` — công thức tính p95/p99 latency, mảnh khó nhất PromQL:**
+
+```promql
+histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))
+#                   │                                            └─ ⭐ PHẢI là metric có hậu tố "_bucket"
+#                   │                                               (không phải _sum hay _count)
+#                   └─ 0.95 = phân vị thứ 95 (p95): "95% request nhanh hơn con số này"
+```
+
+**Tiền đề bắt buộc phải hiểu**: một metric **histogram** trong Prometheus thực chất sinh ra **3 metric riêng**:
+
+| Hậu tố | Ý nghĩa |
+|---|---|
+| `_bucket{le="0.5"}` | Đếm số request có độ trễ **≤** giá trị `le` (less-or-equal), theo từng ngưỡng |
+| `_sum` | **Tổng** thời gian tất cả request cộng lại |
+| `_count` | **Số lượng** request |
+
+⇒ `histogram_quantile` chỉ dùng được với `_bucket` vì nó cần **phân bố** theo ngưỡng, không phải tổng hay đếm đơn thuần.
+
+⭐ **p95 vs trung bình (average) — vì sao dashboard nên ưu tiên p95:**
+
+Trung bình bị **một request rất chậm kéo lệch nhẹ**, nhưng vẫn có thể nhìn "ổn" nếu đa số request nhanh. **p95** trả lời đúng câu hỏi vận hành thật sự quan tâm: *"95% người dùng trải nghiệm nhanh hơn bao nhiêu?"* — phản ánh trải nghiệm của **đa số**, không bị outlier che lấp cũng không bị outlier bỏ qua.
+
+**Các câu PromQL hay dùng khác — bóc nhanh:**
+
+```promql
+node_memory_MemAvailable_bytes                         # RAM CÒN DÙNG ĐƯỢC (không phải "free" trần)
+100 - (avg by(instance)(rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)
+#                                                └─ mode="idle" = %thời gian CPU RẢNH RỖI
+#      └─ 100% trừ đi %rảnh = %ĐANG DÙNG (đây là công thức chuẩn, không có metric "%cpu used" trực tiếp)
+```
+
+⚠️ Prometheus **không lưu vĩnh viễn** — mặc định giữ **15 ngày** rồi tự xoá dữ liệu cũ (cấu hình bằng `--storage.tsdb.retention.time`). Cần lưu lâu hơn (audit, so sánh theo quý) phải remote-write sang **Thanos/Cortex/Mimir** hoặc kho lưu trữ dài hạn khác.
+
+</details>
+
 ### Xem metric endpoint & health check
 ```bash
 curl -s localhost:8080/metrics         # Metric dạng Prometheus của app
@@ -5646,6 +6019,68 @@ curl -s localhost:8080/actuator/health # Spring Boot health
 watch -n 2 'curl -s localhost:8080/health'   # Theo dõi health mỗi 2s
 ```
 
+<details>
+<summary><b>Bấm xem: /metrics vs /health khác nhau chỗ nào</b></summary>
+
+⭐ **Hai endpoint cùng "kiểm tra service" nhưng trả lời hai câu hỏi khác hẳn:**
+
+| | `/health` | `/metrics` |
+|---|---|---|
+| Trả lời | *"Service này SỐNG hay CHẾT?"* | *"Service đang vận hành RA SAO?"* |
+| Định dạng | Thường gọn: `{"status":"ok"}` hoặc chỉ mã HTTP 200 | ⭐ Dạng **Prometheus text format**, hàng trăm dòng số |
+| Ai gọi | K8s (**liveness/readiness probe**), load balancer | Prometheus (**scrape** định kỳ, ví dụ mỗi 15s) |
+| Tần suất gọi | Vài giây/lần | Vài chục giây/lần |
+
+```bash
+curl -s localhost:8080/health
+# {"status":"ok","database":"connected"}
+#              └─ ⭐ health check TỐT nên tự kiểm tra CẢ dependency (DB, cache),
+#                    không chỉ trả "tôi còn sống" mà bỏ qua DB đã chết
+
+curl -s localhost:8080/metrics | head -20
+# # HELP http_requests_total Total HTTP requests
+# # TYPE http_requests_total counter
+# http_requests_total{method="GET",status="200"} 15234
+#                       └─ ⭐ đây chính là DÒNG mà Prometheus đọc vào để chạy PromQL ở mục trên
+```
+
+⭐ **Đọc format Prometheus text — 3 dòng lặp lại cho mỗi metric:**
+
+```
+# HELP <tên>  <mô tả>       <- dòng giải thích, không phải dữ liệu
+# TYPE <tên>  <loại>        <- counter / gauge / histogram / summary
+<tên>{nhãn="giá trị"} <số>  <- ⭐ ĐÂY mới là dữ liệu thật
+```
+
+| `TYPE` | Có thể **giảm** không? | Ví dụ |
+|---|---|---|
+| `counter` | ❌ Chỉ tăng (reset về 0 khi restart) | Tổng số request |
+| `gauge` | ✅ Lên xuống tự do | RAM đang dùng, số kết nối hiện tại |
+| `histogram` | (đặc biệt — sinh ra `_bucket`/`_sum`/`_count`, xem mục PromQL) | Độ trễ request |
+
+⚠️ **Nhầm `counter` với `gauge` khi query là lỗi hay gặp**: dùng `rate()` (dành cho counter) trên một `gauge` sẽ cho ra **con số vô nghĩa**, vì gauge không có tính chất "tăng dần đều".
+
+⭐ **`watch -n 2 'curl -s localhost:8080/health'` — theo dõi mà không cần Grafana/Prometheus:**
+
+```bash
+watch -n 2 'curl -s -o /dev/null -w "%{http_code} %{time_total}s\n" localhost:8080/health'
+#                     │                └─ %{http_code}: mã HTTP · %{time_total}: thời gian phản hồi
+#                     └─ vứt nội dung, chỉ giữ 2 số liệu quan tâm
+# => mỗi 2 giây in ra 1 dòng "200 0.012s" -> theo dõi service có đang GIẬT/CHẬM DẦN không
+```
+
+⭐ **Ba loại probe của Kubernetes dùng chung endpoint kiểu health, nhưng Ý NGHĨA khác nhau — hiểu sai là gây downtime:**
+
+| Probe | Fail thì K8s làm gì | Nên kiểm tra gì bên trong |
+|---|---|---|
+| `livenessProbe` | 🔴 **Restart container** | Chỉ tiến trình còn sống không (deadlock, treo) |
+| `readinessProbe` | Gỡ khỏi Service, **KHÔNG restart** | Đã sẵn sàng nhận traffic chưa (kết nối DB xong chưa) |
+| `startupProbe` | Cho thời gian khởi động dài trước khi 2 probe trên bắt đầu tính | App khởi động xong lần đầu chưa |
+
+🛑 **Sai lầm hay gặp**: `livenessProbe` gọi `/health` mà `/health` lại **kiểm tra cả kết nối database**. Database chậm tạm thời (không phải app lỗi) ⇒ `/health` fail ⇒ K8s **restart cả container** ⇒ mất kết nối đang xử lý dở, làm tình hình **tệ hơn** thay vì tốt lên. ⇒ `liveness` nên **đơn giản** (chỉ kiểm tra tiến trình còn phản hồi), việc kiểm tra dependency nên để cho `readiness`.
+
+</details>
+
 ### Grafana / Loki / cAdvisor (tham khảo)
 ```bash
 # Grafana:   thường ở http://localhost:3000 (admin/admin)
@@ -5653,6 +6088,86 @@ watch -n 2 'curl -s localhost:8080/health'   # Theo dõi health mỗi 2s
 logcli query '{app="myapp"} |= "error"'   # Query Loki bằng CLI (nếu có logcli)
 # cAdvisor:  http://localhost:8080 -> xem metric container realtime
 ```
+
+<details>
+<summary><b>Bấm xem: giải nghĩa LogQL — và vì sao Loki khác ELK</b></summary>
+
+⭐ **Tiền đề — Loki khác Elasticsearch (ELK) ở TRIẾT LÝ, không chỉ ở cú pháp:**
+
+| | Elasticsearch (ELK) | Loki |
+|---|---|---|
+| Đánh index | **Toàn bộ nội dung** log (full-text search) | ⭐ **CHỈ index nhãn** (label) — `app`, `namespace`, `pod` |
+| Nội dung log | Được **phân tích, đánh index** để tìm bất kỳ từ nào | Lưu **nguyên khối nén**, KHÔNG đánh index nội dung |
+| Chi phí lưu trữ | Cao (index nặng) | ⭐ **Thấp hơn nhiều** |
+| Tốc độ tìm theo nhãn | Nhanh | ⭐ Rất nhanh (đây là sở trường) |
+| Tốc độ tìm full-text | Nhanh | Chậm hơn (phải quét nội dung từng khối) |
+
+⇒ Loki đánh đổi: **tìm theo nhãn cực nhanh và rẻ**, đổi lấy **tìm chữ trong nội dung chậm hơn** ELK. Đây là lý do Loki phù hợp với Kubernetes — nơi *"log của pod X trong namespace Y"* (tìm theo nhãn) là truy vấn phổ biến nhất.
+
+**LogQL — cú pháp mượn ý tưởng từ PromQL nhưng cho log:**
+
+```logql
+{app="myapp"} |= "error"
+ │            │  └─ chuỗi cần TÌM (phải khớp nguyên văn, phân biệt hoa/thường)
+ │            └──── |= : "PHẢI CHỨA" chuỗi này (đảo ngược bằng != hoặc !~)
+ └───────────────── ⭐ SELECTOR: BẮT BUỘC phải có, lọc theo NHÃN trước
+                     (đây chính là phần Loki index và tìm nhanh)
+```
+
+⚠️ **Selector `{}` không được để trống hoặc quá rộng.** `{app=~".+"}` (khớp mọi giá trị) buộc Loki phải quét **mọi log của mọi ứng dụng** ⇒ chậm, tốn tài nguyên. Luôn thu hẹp nhãn nhất có thể trước khi thêm điều kiện nội dung.
+
+**Toán tử lọc nội dung:**
+
+| Toán tử | Nghĩa |
+|---|---|
+| `\|=` | **Chứa** chuỗi này |
+| `!=` | **KHÔNG chứa** chuỗi này |
+| `\|~` | Khớp theo **regex** |
+| `!~` | **KHÔNG** khớp regex |
+
+```logql
+{namespace="ai-hub", app="litellm"} |= "error" != "healthcheck"
+#                                    │              └─ loại bỏ nhiễu (log healthcheck không phải lỗi thật)
+#                                    └─ có chữ "error"
+#  {namespace="ai-hub", app="litellm"}  <- ⭐ hai nhãn CÙNG LÚC, cách nhau bằng dấu phẩy = VÀ (AND)
+```
+
+⭐ **Đếm số dòng lỗi theo thời gian — LogQL cũng làm được thống kê như PromQL:**
+
+```logql
+sum(count_over_time({app="myapp"} |= "error" [5m]))
+#      └─────────┘  └────────────────────────┘└──┘
+#      đếm SỐ DÒNG   điều kiện lọc log NHƯ TRÊN  cửa sổ 5 phút
+#  => ra một con số THEO THỜI GIAN, vẽ được lên Grafana y hệt một metric Prometheus
+```
+
+⇒ Đây là điểm mạnh cực lớn của Loki: **cùng một Grafana, cùng ngôn ngữ tư duy** như PromQL, để vừa xem metric vừa xem log — không cần học một hệ thống hoàn toàn khác.
+
+**`logcli` — chạy LogQL từ terminal, không cần mở Grafana:**
+
+```bash
+logcli query '{app="myapp"} |= "error"' --since=1h --limit=100
+#                                        │           └─ giới hạn số dòng trả về
+#                                        └─────────── chỉ log trong 1 giờ gần đây
+```
+
+**Grafana — vài điều cần biết khi mới cài:**
+
+```
+http://localhost:3000    (admin/admin mặc định — ⚠️ BẮT BUỘC đổi ngay lần đăng nhập đầu)
+```
+
+⚠️ Grafana **không tự lưu trữ dữ liệu** — nó chỉ là **lớp hiển thị**, kết nối vào Prometheus/Loki/database khác qua "Data Source". Xoá Grafana không mất dữ liệu metric/log; xoá Prometheus/Loki thì **mất thật**.
+
+**cAdvisor — metric container ở tầng thấp hơn `docker stats`:**
+
+```
+http://localhost:8080    -> giao diện web xem CPU/RAM/network/disk của TỪNG container, realtime
+```
+
+💡 cAdvisor thường **được tích hợp sẵn bên trong kubelet** trên mỗi node K8s (không cần cài riêng) — chính là nguồn dữ liệu phía sau `kubectl top pods`. Cài độc lập chỉ cần khi chạy Docker đơn lẻ, không qua K8s.
+
+</details>
 
 ---
 
@@ -5674,6 +6189,82 @@ kafka-consumer-groups.sh --bootstrap-server localhost:9092 --list              #
 kafka-consumer-groups.sh --bootstrap-server localhost:9092 --describe --group <g>   # Xem LAG (rất quan trọng)
 ```
 
+<details>
+<summary><b>Bấm xem: giải nghĩa Kafka — partition, offset, consumer group, và LAG</b></summary>
+
+**Tiền đề — 3 khái niệm phải hiểu trước khi đọc lệnh:**
+
+| Khái niệm | Là gì | Ví von |
+|---|---|---|
+| **Topic** | "Chủ đề" chứa message | Tên một cuốn sổ |
+| **Partition** | Topic được **chia nhỏ** thành nhiều mảnh song song | Nhiều cuốn sổ CON của cùng chủ đề, đánh số 0,1,2... |
+| **Offset** | Vị trí **thứ tự** của một message TRONG một partition | Số trang trong cuốn sổ đó |
+| **Consumer Group** | Nhóm consumer **chia nhau** đọc các partition | Nhiều người cùng đọc, mỗi người phụ trách vài cuốn sổ con |
+
+⭐ **Vì sao chia partition?** Một partition chỉ đọc/ghi được **tuần tự bởi một consumer tại một thời điểm** (trong cùng group) ⇒ chia nhiều partition để **nhiều consumer xử lý song song** ⇒ tăng thông lượng. Đánh đổi: **thứ tự chỉ được đảm bảo TRONG một partition**, không đảm bảo giữa các partition với nhau.
+
+**Quản lý Topic:**
+
+```bash
+kafka-topics.sh --bootstrap-server localhost:9092 --list
+#                └─ ⭐ "bootstrap": chỉ cần biết 1-2 broker để hỏi,
+#                   Kafka tự trả về địa chỉ TOÀN BỘ cluster từ đó
+
+kafka-topics.sh --bootstrap-server localhost:9092 --describe --topic orders
+#                                                   │          └─ xem CHI TIẾT: bao nhiêu partition,
+#                                                   │             ai là leader, ai là replica của từng partition
+#                                                   └──────────── mô tả
+
+kafka-topics.sh --bootstrap-server localhost:9092 --create --topic orders \
+  --partitions 3 --replication-factor 2
+#                  │                   └─ ⭐ MỖI partition có 2 BẢN SAO (1 leader + 1 replica)
+#                  │                      -> mất 1 broker vẫn CÒN dữ liệu
+#                  └───────────────────── chia thành 3 mảnh song song
+```
+
+⚠️ **`--partitions` chỉ TĂNG được, KHÔNG GIẢM được** sau khi tạo. Và tăng partition sau này sẽ **phá vỡ thứ tự** dựa trên key cũ (message cùng key trước đây vào cùng partition, sau khi tăng partition có thể **rơi vào partition khác**). ⇒ Cân nhắc kỹ số partition **trước khi** đưa vào production, tăng partition không phải thao tác "chỉnh sửa nhỏ".
+
+**Producer / Consumer — công cụ test nhanh, không dùng cho production thật:**
+
+```bash
+kafka-console-producer.sh --bootstrap-server localhost:9092 --topic orders
+#  (gõ từng dòng, Enter là gửi 1 message; Ctrl+D thoát)
+
+kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic orders --from-beginning
+#                                                                          └─ ⭐ đọc TỪ ĐẦU
+#                                                                             (thiếu cờ này = chỉ thấy message MỚI từ giờ trở đi,
+#                                                                              message cũ đã có trước khi bạn chạy consumer thì KHÔNG thấy)
+```
+
+⭐ **Consumer Group & LAG — bảng chẩn đoán quan trọng nhất khi vận hành Kafka:**
+
+```bash
+kafka-consumer-groups.sh --bootstrap-server localhost:9092 --describe --group order-service
+```
+
+```
+GROUP          TOPIC   PARTITION  CURRENT-OFFSET  LOG-END-OFFSET  LAG
+order-service  orders  0          15234           15234           0      <- đã đọc HẾT, không tồn đọng
+order-service  orders  1          8200            15500           7300   <- ⭐ TỒN 7300 message CHƯA XỬ LÝ
+```
+
+| Cột | Nghĩa |
+|---|---|
+| `CURRENT-OFFSET` | Consumer đã **đọc tới đâu** |
+| `LOG-END-OFFSET` | Message **mới nhất** đã được ghi vào partition đó |
+| **`LAG`** | ⭐ `LOG-END-OFFSET − CURRENT-OFFSET` = số message **đang chờ xử lý** |
+
+🛑 **`LAG` là chỉ số quan trọng bậc nhất khi vận hành hệ thống hàng đợi.** `LAG` tăng liên tục theo thời gian ⇒ **consumer xử lý chậm hơn tốc độ producer gửi vào** ⇒ hàng đợi phình to mãi ⇒ cần: thêm consumer (nếu còn partition rảnh để chia), tối ưu code xử lý, hoặc consumer đang **bị treo/crash** mà không ai biết.
+
+⚠️ **Số consumer HIỆU QUẢ tối đa = số partition.** Thêm consumer thứ 4 vào group trong khi topic chỉ có 3 partition ⇒ consumer thứ 4 đó **ngồi không, không nhận việc gì** — vì một partition chỉ giao cho đúng một consumer trong cùng group tại một thời điểm.
+
+```bash
+kafka-consumer-groups.sh --bootstrap-server localhost:9092 --list
+#                                                            └─ liệt kê MỌI consumer group đang tồn tại
+```
+
+</details>
+
 ### RabbitMQ
 ```bash
 rabbitmqctl status                     # Trạng thái node
@@ -5685,6 +6276,85 @@ rabbitmqctl list_consumers             # Danh sách consumer
 rabbitmqctl purge_queue <queue>        # Xóa sạch message trong queue
 rabbitmq-plugins enable rabbitmq_management   # Bật UI quản lý (cổng 15672)
 ```
+
+<details>
+<summary><b>Bấm xem: giải nghĩa rabbitmqctl — queue, exchange, và purge nguy hiểm</b></summary>
+
+**Tiền đề — khác Kafka ở mô hình:** Kafka là **log bất biến** (message ở lại, nhiều consumer đọc lại được). RabbitMQ là **hàng đợi truyền thống**: message được **giao cho một consumer rồi biến mất khỏi queue** (trừ khi cấu hình đặc biệt). Chọn công cụ nào tuỳ bài toán: cần **replay lại lịch sử** ⇒ Kafka; cần **định tuyến phức tạp** (routing key, fanout) ⇒ RabbitMQ.
+
+| Khái niệm | Là gì |
+|---|---|
+| **Exchange** | "Trạm phân loại" — nhận message rồi **quyết định đẩy vào queue nào** theo routing key |
+| **Queue** | Nơi message **nằm chờ** được consumer lấy |
+| **Consumer** | Tiến trình lấy message ra xử lý |
+| **Connection** | Kết nối TCP tới RabbitMQ |
+
+```bash
+rabbitmqctl status
+#           └─ trạng thái NODE: version, RAM, disk còn lại, số kết nối
+
+rabbitmqctl list_queues name messages consumers
+#                       └──────────────────────┘ chỉ định RÕ các CỘT muốn xem
+#                       (không ghi gì -> mặc định chỉ hiện name + messages, thiếu consumers)
+```
+
+Đọc kết quả:
+
+| Cột | Ý nghĩa |
+|---|---|
+| `messages` | Số message **đang tồn đọng** trong queue |
+| `consumers` | ⭐ Số tiến trình **đang lắng nghe** queue đó |
+
+🛑 **`consumers = 0` mà `messages` đang tăng — dấu hiệu sự cố nghiêm trọng nhất cần canh:**
+
+```bash
+rabbitmqctl list_queues name messages consumers | awk '$3==0 && $2>0'
+#                                                       │       └─ có message tồn
+#                                                       └─ KHÔNG consumer nào đang nghe
+#  => queue này bị "mồ côi": message vào liên tục mà KHÔNG AI xử lý -> phình vô hạn
+```
+
+⇒ Nguyên nhân thường là: consumer đã crash, deploy sai làm mất kết nối, hoặc chưa từng có ai subscribe đúng queue này.
+
+**Chẩn đoán nghẽn:**
+
+```bash
+rabbitmqctl list_connections            # kết nối TCP đang mở — nhiều bất thường có thể là leak
+rabbitmqctl list_consumers               # ⭐ chi tiết TỪNG consumer: queue nào, ack_required, prefetch
+rabbitmqctl list_exchanges               # danh sách exchange + loại (direct/topic/fanout/headers)
+```
+
+⚠️ **`ack_required` (trong `list_consumers`) — vì sao quan trọng:** RabbitMQ chỉ **xoá hẳn** message khỏi queue sau khi consumer gửi **acknowledgement** (xác nhận đã xử lý xong). Consumer **crash TRƯỚC KHI ack** ⇒ message **tự động quay lại queue** để giao cho consumer khác — đây là cơ chế **đảm bảo không mất message**, nhưng cũng là lý do một message có thể được xử lý **nhiều lần** nếu code không idempotent (chạy lại vẫn ra kết quả đúng).
+
+🛑 **`purge_queue` — xoá sạch, không hoàn tác:**
+
+```bash
+rabbitmqctl purge_queue orders
+#                       └─ 🔴 XOÁ TOÀN BỘ message ĐANG CHỜ trong queue này, MẤT VĨNH VIỄN
+```
+
+⇒ Chỉ dùng khi **chắc chắn** dữ liệu trong queue không còn giá trị (ví dụ dọn queue test, hoặc sau khi đã xác nhận nghiệp vụ chấp nhận bỏ qua các message tồn đọng). Không có bước hỏi lại — gõ Enter là mất ngay.
+
+**Bật giao diện quản lý (web UI):**
+
+```bash
+rabbitmq-plugins enable rabbitmq_management
+#                        └─ tên plugin CỐ ĐỊNH, không đổi được
+# => truy cập http://<host>:15672  (user/pass mặc định thường là guest/guest —
+#    ⚠️ tài khoản guest CHỈ được phép đăng nhập từ localhost theo mặc định bảo mật của RabbitMQ)
+```
+
+⚠️ Đăng nhập `guest/guest` từ xa (không phải localhost) sẽ bị **từ chối theo thiết kế bảo mật mặc định** — không phải plugin lỗi. Cần tạo user riêng có quyền phù hợp để truy cập UI từ máy khác:
+
+```bash
+rabbitmqctl add_user admin 'MatKhauManh'
+rabbitmqctl set_user_tags admin administrator
+#                              └─ gán quyền QUẢN TRỊ đầy đủ trên UI
+rabbitmqctl set_permissions -p / admin ".*" ".*" ".*"
+#                            └─ vhost "/" (mặc định)  -- ba dấu ".*" = quyền configure/write/read TRÊN MỌI resource
+```
+
+</details>
 
 ---
 
@@ -5716,6 +6386,84 @@ awk '{print $7}' access.log | sort | uniq -c | sort -rn | head   # Top URL bị 
 # 413 Too Large       -> tăng client_max_body_size
 # 499                 -> client tự ngắt kết nối
 ```
+
+<details>
+<summary><b>Bấm xem: giải nghĩa nginx -t/-s/-T và bảng mã lỗi 502/504/413</b></summary>
+
+⭐ **`nginx -t` — LỆNH BẮT BUỘC chạy trước MỌI lần reload, không có ngoại lệ:**
+
+| Cờ | Viết tắt của | Làm gì |
+|---|---|---|
+| `-t` | **t**est | ⭐ Kiểm tra **cú pháp** config, KHÔNG áp dụng gì |
+| `-T` | **T** hoa | Như `-t` nhưng **in luôn toàn bộ config đã gộp** ra màn hình |
+| `-s reload` | **s**ignal | Gửi tín hiệu **nạp lại config**, giữ nguyên tiến trình worker cũ tới khi worker mới sẵn sàng — **không downtime** |
+| `-s stop` | | Dừng **ngay lập tức** (nặng tay) |
+| `-s quit` | | Dừng **êm** — xử lý nốt request đang dở rồi mới thoát |
+| `-V` | **V**ersion | Version + danh sách **module đã build kèm** |
+
+🛑 **Không `nginx -t` trước khi reload = đánh cược cả service.** Nếu config có lỗi cú pháp, `nginx -s reload` sẽ **thất bại và giữ nguyên config CŨ đang chạy** — nghe có vẻ an toàn, nhưng nếu đang trong quy trình tự động (CI/CD) mà không kiểm tra kỹ, bạn có thể tưởng đã áp dụng bản mới trong khi **thực tế vẫn chạy bản cũ**, gây lệch giữa cái bạn nghĩ đang chạy và cái thật sự đang chạy.
+
+```bash
+nginx -t && nginx -s reload
+#     │      └─ CHỈ reload nếu -t THÀNH CÔNG (nhờ &&)
+#     └──────── luôn kiểm tra CÚ PHÁP trước
+```
+
+⚠️ **`-t` chỉ bắt lỗi CÚ PHÁP** (thiếu dấu `;`, sai tên directive) — **KHÔNG bắt được** lỗi logic (route sai upstream, mở port trùng process khác). Cú pháp đúng không đảm bảo hành vi đúng.
+
+⭐ **`reload` vs `stop`/`quit` — vì sao reload không gây downtime:**
+
+Nginx dùng mô hình **master + nhiều worker**. `reload` bảo master: **tạo worker MỚI với config mới**, để worker **cũ** xử lý nốt request đang dở, rồi mới tắt worker cũ. Trong toàn bộ quá trình, **luôn có ít nhất một worker đang phục vụ** ⇒ client không hề thấy gián đoạn.
+
+```bash
+systemctl reload nginx      # ⭐ tương đương nginx -s reload, ưu tiên dùng khi chạy qua systemd
+systemctl restart nginx     # 🛑 dừng HẲN rồi bật lại -> CÓ khoảng trống ngắn, mất kết nối đang mở
+```
+
+**Vị trí file config — thứ tự đọc quan trọng khi debug "sửa mà không ăn":**
+
+```
+/etc/nginx/nginx.conf        # file GỐC, include các file dưới
+/etc/nginx/conf.d/*.conf     # config bổ sung, TỰ ĐỘNG được include (không cần symlink)
+/etc/nginx/sites-available/  # ⭐ CHỈ LÀ NƠI LƯU — nginx KHÔNG tự đọc thư mục này
+/etc/nginx/sites-enabled/    # ⭐ nginx CHỈ đọc những gì NẰM Ở ĐÂY (thường là symlink trỏ vào sites-available)
+```
+
+🛑 Sửa file trong `sites-available/` mà **quên tạo symlink** sang `sites-enabled/` ⇒ nginx **không bao giờ đọc** file đó, dù cú pháp hoàn toàn đúng:
+
+```bash
+ln -s /etc/nginx/sites-available/myapp /etc/nginx/sites-enabled/myapp
+#     └─ ĐÍCH (file thật)                └─ TÊN LIÊN KẾT (chỗ nginx thực sự nhìn vào)
+```
+
+**`-T` — công cụ điều tra khi nghi ngờ "config trên đĩa khác config đang chạy":**
+
+```bash
+nginx -T | grep -A 5 "server_name api.company.vn"
+#     │                └─ ⭐ in TOÀN BỘ config đã GỘP các include lại,
+#     │                     đúng CHÍNH XÁC những gì nginx nhìn thấy — không phải bạn tự suy luận từ nhiều file
+```
+
+**Bảng mã lỗi — đọc log rồi tra ngay, đừng đoán:**
+
+| Mã | Tên | Nguyên nhân | Kiểm tra |
+|---|---|---|---|
+| `502` | Bad Gateway | **Backend không phản hồi** — chết, sai `proxy_pass`, sai port | `curl` thẳng vào backend, `docker ps`/`kubectl get pods` |
+| `504` | Gateway Timeout | Backend **có phản hồi** nhưng **quá chậm**, vượt `proxy_read_timeout` | Tăng timeout **hoặc** tối ưu backend — hai hướng khác nhau |
+| `413` | Request Entity Too Large | Body request **vượt** `client_max_body_size` (mặc định chỉ **1MB**) | `client_max_body_size 20M;` |
+| `499` | (riêng của Nginx) | **Client tự đóng** kết nối trước khi server trả lời xong | Không phải lỗi server — thường do client timeout ngắn hơn |
+
+⚠️ **502 và 504 nghe giống nhau nhưng chẩn đoán ngược hướng nhau:** 502 = **không kết nối được tới backend** (backend coi như không tồn tại với nginx); 504 = **kết nối được, nhưng chờ mãi không xong** (backend tồn tại, chỉ là chậm). Tăng `proxy_read_timeout` chữa được 504 nhưng **không chữa được** 502 — 502 phải sửa ở tầng kết nối/backend.
+
+**Đếm lỗi theo mã trạng thái — công thức đã gặp ở mục awk phía trên:**
+
+```bash
+awk '{print $9}' /var/log/nginx/access.log | sort | uniq -c | sort -rn | head
+#            └─ ⭐ cột 9 trong log format "combined" mặc định = mã HTTP status
+#               (nếu log format tùy chỉnh khác, số cột có thể khác — kiểm tra log_format trong config)
+```
+
+</details>
 
 ---
 
