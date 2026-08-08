@@ -3192,6 +3192,126 @@ pg_restore -U user -d db backup.dump           # Restore từ dump nén
 # SELECT pg_terminate_backend(<pid>);         # Kill 1 query treo
 ```
 
+<details>
+<summary><b>Bấm xem: giải nghĩa cờ psql, lệnh gạch chéo, pg_dump/pg_restore</b></summary>
+
+| Cờ | Viết tắt của | Làm gì |
+|---|---|---|
+| `-U` | **U**ser | Đăng nhập bằng user nào (⚠️ **chữ HOA**) |
+| `-d` | **d**atabase | Database nào |
+| `-h` | **h**ost | Máy chủ. Không ghi = kết nối qua **Unix socket** trên máy local |
+| `-p` | **p**ort | Cổng, mặc định **5432** |
+| `-c` | **c**ommand | Chạy **một câu SQL** rồi thoát ngay (hợp cho script) |
+| `-f` | **f**ile | Chạy SQL từ file |
+| `-t` | **t**uples only | Bỏ tiêu đề cột và dòng đếm — chỉ lấy **dữ liệu thuần** |
+| `-A` | **A**ligned tắt | Bỏ canh lề bằng khoảng trắng |
+| `-F` | **F**ield separator | Đổi ký tự phân tách cột |
+
+⚠️ **`-U` là chữ HOA. `-u` viết thường sẽ báo lỗi** — khác với `mysql` dùng `-u` thường. Đây là chỗ hay gõ nhầm khi chuyển qua lại giữa hai loại DB.
+
+**Nhập mật khẩu — đừng gõ vào lệnh:**
+
+```bash
+PGPASSWORD='matkhau' psql -h db -U app -d mydb -c "SELECT 1;"
+# └─ biến môi trường đặt NGAY TRƯỚC lệnh: chỉ có hiệu lực cho ĐÚNG lệnh này
+#    ⚠️ vẫn lọt vào lịch sử shell -> chỉ nên dùng trong script CI
+
+# ⭐ Cách chuẩn: file ~/.pgpass (psql tự đọc, không cần gõ gì)
+echo "db-host:5432:mydb:app:matkhau" >> ~/.pgpass
+chmod 600 ~/.pgpass
+#     └─ BẮT BUỘC 600 (chỉ chủ sở hữu đọc/ghi).
+#        Quyền lỏng hơn thì psql TỪ CHỐI ĐỌC và IM LẶNG bỏ qua file
+#        -> hiện tượng "đã tạo .pgpass mà vẫn hỏi mật khẩu"
+```
+
+**Lệnh gạch chéo `\` — chỉ có bên trong `psql`, không phải SQL:**
+
+| Lệnh | Viết tắt của | Làm gì |
+|---|---|---|
+| `\l` | **l**ist | Liệt kê database |
+| `\c <db>` | **c**onnect | Chuyển database |
+| `\dt` | **d**escribe **t**ables | Liệt kê bảng |
+| `\d <table>` | **d**escribe | Cấu trúc bảng: cột, kiểu, index, khoá ngoại |
+| `\d+ <table>` | | Như trên **+ dung lượng, mô tả** |
+| `\du` | **d**escribe **u**sers | Danh sách role/user |
+| `\dn` | **d**escribe **n**amespaces | Danh sách schema |
+| `\di` | **d**escribe **i**ndexes | Danh sách index |
+| `\x` | e**x**panded | ⭐ Bật/tắt hiển thị **dọc** |
+| `\timing` | | Bật đo thời gian mỗi query |
+| `\q` | **q**uit | Thoát |
+
+⭐ **`\x` — cứu tinh khi bảng có nhiều cột.** Bảng 20 cột in ngang thì **tràn dòng, không đọc nổi**. Bật `\x` đổi thành mỗi cột một dòng:
+
+```
+-[ RECORD 1 ]------------------
+id       | 42
+email    | user@company.vn
+created  | 2026-08-07 09:15:00
+```
+
+**Truy vấn chẩn đoán — dùng khi DB chậm/treo:**
+
+```sql
+-- Query nào đang chạy và chạy bao lâu rồi
+SELECT pid, now() - query_start AS thoi_gian, state, left(query, 80)
+FROM pg_stat_activity
+WHERE state != 'idle' AND pid != pg_backend_pid()
+--                        └─ loại bỏ CHÍNH phiên đang gõ lệnh này
+ORDER BY thoi_gian DESC;
+```
+
+⚠️ **Hai cách dừng query — khác nhau về mức độ:**
+
+```sql
+SELECT pg_cancel_backend(12345);     -- ⭐ THỬ CÁI NÀY TRƯỚC: huỷ query, GIỮ kết nối
+SELECT pg_terminate_backend(12345);  -- 🛑 mạnh tay: cắt CẢ kết nối
+```
+
+⇒ `cancel` để app còn cơ hội xử lý lỗi tử tế. `terminate` khiến app **mất kết nối đột ngột** — có thể làm rơi cả pool kết nối.
+
+⚠️ **Truy vấn phát hiện khoá (lock) — nguyên nhân số 1 của "DB treo":**
+
+```sql
+SELECT pid, wait_event_type, wait_event, left(query,60)
+FROM pg_stat_activity WHERE wait_event_type = 'Lock';
+--                          └─ đang CHỜ khoá do phiên khác giữ
+```
+
+⚠️ Trạng thái **`idle in transaction`** rất nguy hiểm: app mở transaction rồi **quên commit/rollback** ⇒ giữ khoá **vô thời hạn** ⇒ mọi query khác xếp hàng chờ. Đây thường là **lỗi code phía ứng dụng**, không phải lỗi database.
+
+**Backup & Restore — chọn đúng định dạng:**
+
+```bash
+pg_dump -U app -d mydb -Fc -f backup.dump
+#                       │   └─ ghi ra file (thay cho dùng dấu > )
+#                       └──── F = Format, c = custom: NÉN SẴN + restore chọn lọc được
+```
+
+| Định dạng | Lệnh dump | Restore bằng | Ưu điểm |
+|---|---|---|---|
+| **Plain SQL** | `pg_dump -d db > b.sql` | `psql -d db < b.sql` | Đọc/sửa được bằng editor |
+| **Custom (`-Fc`)** | `pg_dump -Fc -f b.dump` | `pg_restore -d db b.dump` | ⭐ Nén sẵn · **restore từng bảng** · chạy song song |
+
+🛑 **Không dùng lẫn**: file `-Fc` là **nhị phân**, đưa vào `psql <` sẽ báo lỗi khó hiểu. Ngược lại file `.sql` đưa vào `pg_restore` cũng không chạy.
+
+```bash
+pg_restore -U app -d mydb -j 4 --clean --if-exists backup.dump
+#                          │    │       └─ không báo lỗi khi object chưa tồn tại
+#                          │    └───────── XOÁ object cũ trước khi tạo lại
+#                          └────────────── j = jobs: restore SONG SONG 4 luồng (nhanh hơn nhiều)
+```
+
+⚠️ `pg_dump` **chỉ backup MỘT database**, **không** gồm role và tablespace (thứ nằm ở cấp cụm). Backup toàn bộ cụm phải dùng:
+
+```bash
+pg_dumpall -U postgres -f all.sql      # gồm cả role, quyền, mọi database
+pg_dumpall -U postgres --roles-only -f roles.sql   # chỉ role (hay dùng kèm với pg_dump)
+```
+
+⚠️ **Phiên bản `pg_dump` phải ≥ phiên bản server.** Dùng `pg_dump` 13 để dump server 16 ⇒ lỗi `server version mismatch`. Trong container thì chạy `pg_dump` **bằng chính image của server** là chắc nhất.
+
+</details>
+
 ### MySQL / MariaDB
 ```bash
 mysql -u <user> -p                     # Kết nối (sẽ hỏi password)
@@ -3213,6 +3333,106 @@ mysqldump -u user -p db table > table.sql      # Backup 1 bảng
 mysqldump -u user -p --all-databases > all.sql # Backup tất cả
 mysql -u user -p db < backup.sql               # Restore
 ```
+
+<details>
+<summary><b>Bấm xem: giải nghĩa cờ mysql/mysqldump và các lệnh chẩn đoán</b></summary>
+
+| Cờ | Viết tắt của | Làm gì |
+|---|---|---|
+| `-u` | **u**ser | User (⚠️ **chữ thường** — ngược với PostgreSQL dùng `-U` hoa) |
+| `-p` | **p**assword | Hỏi mật khẩu. ⚠️ Xem cảnh báo về khoảng trắng bên dưới |
+| `-h` | **h**ost | Máy chủ |
+| `-P` | **P**ort | Cổng (⚠️ **chữ HOA** — `-p` thường là password!) |
+| `-e` | **e**xecute | Chạy một câu SQL rồi thoát |
+| `-N` | **N**o column names | Bỏ dòng tiêu đề |
+| `-B` | **B**atch | Xuất dạng phân tách bằng Tab (hợp cho script) |
+
+🛑 **Bẫy `-p` — dấu KHOẢNG TRẮNG đổi hoàn toàn ý nghĩa:**
+
+```bash
+mysql -u root -p mydb          # -p KHÔNG có giá trị -> HỎI mật khẩu, "mydb" là TÊN DATABASE
+mysql -u root -pMatKhau mydb   # -p DÍNH LIỀN giá trị -> "MatKhau" là MẬT KHẨU
+mysql -u root -p MatKhau       # 🛑 SAI: "MatKhau" bị hiểu là TÊN DATABASE -> lỗi unknown database
+```
+
+⇒ Quy tắc: **`-p` phải dính liền mật khẩu, không có dấu cách.** Nhưng cách này khiến mật khẩu lọt vào `ps aux` (mọi user trên máy đều đọc được) và lịch sử shell.
+
+⭐ **Cách an toàn — file `~/.my.cnf`:**
+
+```bash
+cat > ~/.my.cnf <<'EOF'
+[client]
+user=app
+password=matkhau
+host=db-host
+EOF
+chmod 600 ~/.my.cnf
+#     └─ bắt buộc: file chứa mật khẩu, không cho user khác đọc
+# => từ giờ chỉ cần gõ `mysql mydb`, không cần cờ nào
+```
+
+| Lệnh SQL | Làm gì |
+|---|---|
+| `SHOW DATABASES;` | Liệt kê database |
+| `USE <db>;` | Chọn database |
+| `SHOW TABLES;` | Liệt kê bảng |
+| `DESCRIBE <t>;` | Cấu trúc bảng (viết tắt: `DESC`) |
+| `SHOW CREATE TABLE <t>;` | ⭐ Câu lệnh tạo bảng **đầy đủ** — gồm index, engine, charset |
+| `SHOW PROCESSLIST;` | Query đang chạy |
+| `SHOW FULL PROCESSLIST;` | ⭐ Như trên nhưng **không cắt cụt** câu query |
+| `SHOW ENGINE INNODB STATUS;` | Chi tiết khoá, deadlock |
+| `KILL <id>;` | Dừng một query |
+
+⚠️ **Dấu `;` cuối câu là bắt buộc.** Quên `;` thì mysql hiện dấu nhắc `->` chờ bạn gõ tiếp — trông như **treo**. Gõ `;` rồi Enter, hoặc `\c` để huỷ câu đang gõ.
+
+⭐ **`SHOW FULL PROCESSLIST` — vì sao phải có `FULL`?** Bản không `FULL` **cắt query còn 100 ký tự** ⇒ query dài bị chặt đúng chỗ cần xem. Khi truy tìm query chậm, luôn dùng `FULL`.
+
+Đọc kết quả — cột **`Time`** (giây) và **`State`**:
+
+| `State` | Nghĩa |
+|---|---|
+| `Sending data` | Đang đọc/xử lý dữ liệu (tên gây hiểu nhầm — **không phải** đang truyền mạng) |
+| `Waiting for table metadata lock` | ⚠️ Bị chặn bởi **DDL** (ALTER TABLE) đang chạy |
+| `Copying to tmp table` | ⚠️ Query phải tạo bảng tạm — thường **thiếu index** |
+| `Locked` | Đang chờ khoá |
+
+**Backup & Restore:**
+
+```bash
+mysqldump -u app -p --single-transaction --quick --routines --triggers mydb > backup.sql
+#                    │                    │       │          └─ kèm trigger
+#                    │                    │       └───────────── kèm stored procedure/function
+#                    │                    └───────────────────── đọc từng dòng, KHÔNG nạp cả bảng vào RAM
+#                    └──────────────────────────────────────── ⭐ backup NHẤT QUÁN mà KHÔNG KHOÁ BẢNG
+```
+
+⭐ **`--single-transaction` — cờ quan trọng nhất khi backup production.**
+
+Không có nó, `mysqldump` **khoá toàn bộ bảng** trong suốt quá trình dump ⇒ ứng dụng **không ghi được** ⇒ **downtime** kéo dài hàng phút tới hàng giờ với DB lớn.
+
+Có nó, dump chạy trong **một transaction** ⇒ thấy ảnh chụp nhất quán tại một thời điểm, **app vẫn ghi bình thường**.
+
+🛑 **Giới hạn phải biết**: `--single-transaction` **chỉ hiệu lực với InnoDB**. Bảng dùng **MyISAM** vẫn bị khoá như thường. Kiểm tra engine trước:
+
+```sql
+SELECT table_name, engine FROM information_schema.tables WHERE table_schema='mydb';
+```
+
+⚠️ **`mysqldump` không tự backup user/quyền** (nằm ở database `mysql`). Muốn có, thêm `--all-databases` hoặc dump riêng.
+
+**Restore — và mẹo tăng tốc:**
+
+```bash
+mysql -u app -p mydb < backup.sql
+
+# File lớn -> xem tiến trình bằng pv (pipe viewer):
+pv backup.sql | mysql -u app -p mydb
+# └─ hiện thanh tiến trình + tốc độ + thời gian còn lại (cần cài pv)
+```
+
+⚠️ Restore **không tự xoá dữ liệu cũ** trừ khi file dump có sẵn lệnh `DROP TABLE` (mysqldump mặc định **có** thêm `DROP TABLE IF EXISTS`). Restore vào database **đang có dữ liệu khác** ⇒ dễ lẫn lộn ⇒ nên tạo database trống rồi restore vào đó.
+
+</details>
 
 ### Redis (redis-cli)
 ```bash
@@ -3237,6 +3457,98 @@ MONITOR                                # Xem mọi lệnh realtime (debug)
 CLIENT LIST                            # Danh sách client đang kết nối
 ```
 
+<details>
+<summary><b>Bấm xem: giải nghĩa redis-cli — và vì sao KEYS * làm sập production</b></summary>
+
+| Cờ | Viết tắt của | Làm gì |
+|---|---|---|
+| `-h` | **h**ost | Máy chủ |
+| `-p` | **p**ort | Cổng, mặc định **6379** |
+| `-a` | **a**uth | Mật khẩu ⚠️ lọt vào `ps aux` — xem cách an toàn bên dưới |
+| `-n` | **n**umber | Chọn database số mấy (Redis có 16 DB đánh số 0-15) |
+| `--scan` | | Duyệt key **an toàn** từ dòng lệnh |
+| `--bigkeys` | | ⭐ Tìm key **chiếm nhiều RAM nhất** |
+| `--stat` | | Thống kê realtime, tự cập nhật |
+| `-i` | **i**nterval | Khoảng lặp lại (giây) |
+
+⚠️ **Mật khẩu an toàn** — dùng biến môi trường thay vì `-a`:
+
+```bash
+REDISCLI_AUTH='matkhau' redis-cli -h redis-host ping
+# └─ redis-cli tự đọc biến này; KHÔNG hiện trong `ps aux` như cờ -a
+```
+
+🛑🛑 **`KEYS *` — lệnh làm sập Redis production, phải hiểu vì sao:**
+
+Redis là **đơn luồng**: nó xử lý **một lệnh tại một thời điểm**. `KEYS *` phải **duyệt toàn bộ** không gian khoá và **không nhường chỗ cho lệnh khác** trong suốt quá trình đó.
+
+⇒ Với 10 triệu key, `KEYS *` chạy vài giây, và trong **toàn bộ vài giây đó Redis ĐỨNG IM** — mọi ứng dụng đang dùng Redis đều **treo**, timeout, health check fail, có thể kéo sập cả chuỗi dịch vụ.
+
+⭐ **Cái gì thay thế? — `SCAN`**, duyệt theo **từng mẻ nhỏ**, có nhường chỗ giữa các mẻ:
+
+```bash
+redis-cli --scan --pattern 'session:*' --count 100
+#          │      │                     └─ gợi ý mỗi mẻ ~100 key (không phải giới hạn tổng)
+#          │      └─ lọc theo mẫu
+#          └──────── tự động lặp SCAN cho tới hết, an toàn với production
+```
+
+| | `KEYS *` | `SCAN` |
+|---|---|---|
+| Chặn server | 🛑 **Có** — đứng im tới khi xong | ✅ Không |
+| Kết quả | Chính xác tại một thời điểm | Có thể **trùng lặp**; key thêm/xoá giữa chừng có thể sót |
+| Dùng ở production | ❌ **Tuyệt đối không** | ✅ Được |
+
+⚠️ Trong `SCAN`, `--count` chỉ là **gợi ý cho mỗi vòng lặp**, không phải "lấy đúng N key rồi dừng" — hay bị hiểu nhầm.
+
+**Lệnh nguy hiểm khác — cùng lý do đơn luồng:**
+
+| Lệnh | Vì sao nguy hiểm | Dùng gì thay |
+|---|---|---|
+| `FLUSHDB` / `FLUSHALL` | 🔴 Xoá sạch, **không hỏi lại** | `FLUSHALL ASYNC` (xoá nền, không chặn) |
+| `MONITOR` | In **mọi lệnh** của mọi client ⇒ ngốn CPU và băng thông | Chỉ bật **vài giây**, hoặc dùng `SLOWLOG` |
+| `SAVE` | Ghi RAM xuống đĩa **đồng bộ** ⇒ chặn hoàn toàn | `BGSAVE` (chạy nền) |
+| `DEBUG SLEEP` | Làm treo có chủ đích | — |
+
+⭐ **Bộ lệnh chẩn đoán an toàn — chạy được trên production:**
+
+```bash
+redis-cli INFO memory | grep -E 'used_memory_human|maxmemory_human|evicted'
+#                              └─ RAM đang dùng · giới hạn · số key bị ĐUỔI
+
+redis-cli --bigkeys      # tìm key to nhất (nguyên nhân của "Redis phình RAM")
+redis-cli --stat -i 2    # thống kê 2 giây/lần: số key, RAM, kết nối, ops/giây
+redis-cli SLOWLOG GET 10 # ⭐ 10 lệnh CHẬM nhất gần đây — thay cho MONITOR
+redis-cli CLIENT LIST | wc -l     # đếm số kết nối đang mở
+```
+
+⚠️ **Chỉ số quan trọng nhất khi Redis đầy RAM** — `evicted_keys`:
+
+| Chỉ số | Ý nghĩa |
+|---|---|
+| `evicted_keys` tăng | Redis **đang phải xoá key** để lấy chỗ ⇒ cache miss tăng ⇒ tải dồn xuống database |
+| `used_memory` ≈ `maxmemory` | Sắp/đã chạm trần |
+| `mem_fragmentation_ratio` > 1.5 | RAM bị phân mảnh (không phải lỗi, nhưng đáng theo dõi) |
+
+⚠️ **`TTL` trả về số âm — hai giá trị mang nghĩa khác nhau hoàn toàn:**
+
+| Giá trị | Nghĩa |
+|---|---|
+| `-1` | Key **tồn tại** nhưng **KHÔNG có hạn** ⇒ sống mãi ⇒ ⚠️ nguồn gốc rò rỉ bộ nhớ |
+| `-2` | Key **KHÔNG tồn tại** (đã hết hạn hoặc chưa từng có) |
+
+⇒ Nhầm `-1` với "không có key" là chẩn đoán sai hoàn toàn. `-1` là **có key, và nó sẽ nằm đó vĩnh viễn**.
+
+**Kiểm tra nhanh sức khoẻ:**
+
+```bash
+redis-cli ping                    # trả PONG = sống
+redis-cli -h redis --no-auth-warning -a "$PASS" ping
+#                   └─ tắt cảnh báo "dùng -a không an toàn" (khi buộc phải dùng trong script)
+```
+
+</details>
+
 ### MongoDB (mongosh)
 ```bash
 mongosh                                # Kết nối local
@@ -3259,6 +3571,106 @@ mongodump --db <db> --out ./backup             # Backup
 mongorestore --db <db> ./backup/<db>           # Restore
 ```
 
+<details>
+<summary><b>Bấm xem: giải nghĩa mongosh, chuỗi kết nối, và lệnh chẩn đoán</b></summary>
+
+**Tiền đề — `mongosh` vs `mongo`:** `mongo` là shell **cũ, đã bị loại bỏ** từ MongoDB 6.0. Bản thay thế là **`mongosh`** (MongoDB Shell), hỗ trợ JavaScript hiện đại và tô màu cú pháp. Gõ `mongo` mà báo `command not found` trên server mới ⇒ **không phải chưa cài**, mà là đã đổi tên.
+
+**Chuỗi kết nối (connection string) — bóc từng mảnh:**
+
+```bash
+mongosh "mongodb://app:matkhau@host1:27017,host2:27017/mydb?replicaSet=rs0&authSource=admin"
+#         │        │   │       │                        │    │             └─ ⭐ user được TẠO ở database nào
+#         │        │   │       │                        │    └─ tên replica set (bắt buộc khi có cụm)
+#         │        │   │       │                        └─ database muốn dùng
+#         │        │   │       └─ danh sách node, cách nhau bằng dấu phẩy
+#         │        │   └─ mật khẩu (⚠️ ký tự đặc biệt phải mã hoá URL: @ -> %40)
+#         │        └─ tên user
+#         └─ giao thức (mongodb+srv:// nếu dùng bản ghi DNS SRV, ví dụ Atlas)
+```
+
+🛑 **`authSource` — nguyên nhân số 1 của lỗi "Authentication failed" dù mật khẩu đúng.** MongoDB lưu user **trong một database cụ thể**, thường là `admin`. Không ghi `authSource=admin` thì driver đi tìm user trong database `mydb` ⇒ **không thấy** ⇒ báo sai mật khẩu, gây hiểu lầm hoàn toàn.
+
+⚠️ Mật khẩu chứa `@`, `:`, `/` phải **mã hoá URL** (`@` → `%40`), nếu không chuỗi kết nối bị cắt sai chỗ.
+
+**Lệnh trong shell — cú pháp là JavaScript, không phải SQL:**
+
+| Lệnh | Làm gì |
+|---|---|
+| `show dbs` | Liệt kê database |
+| `use <db>` | Chọn database (⚠️ **tạo ngay cả khi chưa tồn tại** — không báo lỗi) |
+| `show collections` | Liệt kê collection (tương đương "bảng") |
+| `db.<c>.find().limit(5)` | ⭐ Truy vấn, **giới hạn 5 bản ghi** |
+| `db.<c>.find().pretty()` | In JSON xuống dòng cho dễ đọc |
+| `db.<c>.countDocuments()` | Đếm **chính xác** |
+| `db.<c>.estimatedDocumentCount()` | Đếm **ước lượng** — nhanh hơn nhiều với collection lớn |
+| `db.<c>.getIndexes()` | ⭐ Xem index hiện có |
+| `db.currentOp()` | Thao tác đang chạy |
+| `db.stats()` | Dung lượng database |
+
+🛑 **`db.<c>.find()` trần trên collection lớn** sẽ kéo về hàng triệu bản ghi ⇒ treo shell, ngốn RAM server. **Luôn thêm `.limit()`**:
+
+```javascript
+db.users.find({ status: "active" }).limit(10).pretty()
+//              └─ điều kiện lọc dạng đối tượng JSON
+```
+
+⭐ **`explain` — công cụ quan trọng nhất khi query chậm:**
+
+```javascript
+db.users.find({ email: "a@b.vn" }).explain("executionStats")
+//                                          └─ chạy thật rồi báo cáo số liệu
+```
+
+Đọc kết quả — hai từ khoá quyết định:
+
+| Giá trị `stage` | Nghĩa |
+|---|---|
+| `COLLSCAN` | 🛑 **Quét toàn bộ collection** — **KHÔNG dùng index** ⇒ nguyên nhân chậm |
+| `IXSCAN` | ✅ Có dùng index |
+
+⇒ Thấy `COLLSCAN` trên collection lớn là **phải tạo index**:
+
+```javascript
+db.users.createIndex({ email: 1 }, { background: true })
+//                            │      └─ tạo NGẦM, không khoá collection (quan trọng ở production)
+//                            └─ 1 = tăng dần, -1 = giảm dần
+```
+
+⚠️ So thêm `totalDocsExamined` với `nReturned`: xem **1 triệu** bản ghi để trả về **10** ⇒ index sai hoặc thiếu.
+
+**Chẩn đoán query treo:**
+
+```javascript
+db.currentOp({ "secs_running": { $gt: 5 } })   // thao tác chạy quá 5 giây
+db.killOp(12345)                               // dừng theo opid lấy được ở trên
+```
+
+**Backup & Restore:**
+
+```bash
+mongodump --uri="mongodb://user:pass@host:27017/mydb?authSource=admin" --out=./backup --gzip
+#          │                                                            │            └─ nén lại
+#          │                                                            └─ thư mục đích
+#          └─ ⭐ dùng --uri thay vì --host/--db rời rạc: gọn và ít sai
+
+mongorestore --uri="mongodb://..." --drop --gzip ./backup/mydb
+#                                   └─ XOÁ collection cũ trước khi nạp
+#                                      (không có --drop thì dữ liệu bị GỘP LẪN vào nhau)
+```
+
+⚠️ **`mongodump` không phải ảnh chụp nhất quán** trên replica set trừ khi thêm `--oplog`. Không có cờ đó, dữ liệu ghi **trong lúc dump** có thể tạo ra bản backup **không nhất quán giữa các collection**:
+
+```bash
+mongodump --uri="..." --oplog --out=./backup
+#                      └─ ghi kèm nhật ký thao tác -> restore ra được một MỐC THỜI GIAN nhất quán
+mongorestore --oplogReplay ./backup
+```
+
+⚠️ `mongodump` đọc **qua tầng ứng dụng** nên **chậm với dữ liệu lớn** (hàng trăm GB). Với quy mô đó nên dùng **snapshot mức ổ đĩa** (LVM/EBS/Longhorn) hoặc MongoDB Ops Manager.
+
+</details>
+
 ---
 
 ## 📁 File, Quyền & User (Linux)
@@ -3278,6 +3690,115 @@ ln -s <target> <link>                  # Tạo symbolic link
 watch -n 2 'ls -la'                    # Chạy lặp lệnh mỗi 2 giây (theo dõi)
 ```
 
+<details>
+<summary><b>Bấm xem: giải nghĩa find, stat, ln, watch — đặc biệt find -delete</b></summary>
+
+| Lệnh & cờ | Viết tắt của | Làm gì |
+|---|---|---|
+| `ls -lah` | **l**ong + **a**ll + **h**uman | Chi tiết + file ẩn + dung lượng dễ đọc |
+| `find -name` | | Tìm theo tên, **phân biệt hoa/thường** |
+| `find -iname` | **i**gnore case | Không phân biệt hoa/thường |
+| `find -type f` | | Chỉ **f**ile thường (`d` = thư mục, `l` = symlink) |
+| `find -size +100M` | | Lớn hơn 100MB (`-` = nhỏ hơn) |
+| `find -mtime -1` | **m**odify time | Sửa **trong vòng** 1 ngày (`+30` = **cũ hơn** 30 ngày) |
+| `find -delete` | | 🛑 Xoá luôn kết quả tìm được |
+| `stat` | | Metadata đầy đủ: kích thước, quyền, inode, 3 mốc thời gian |
+| `readlink -f` | | Đường dẫn **thật** sau khi đi hết chuỗi symlink |
+| `ln -s` | **s**ymbolic | Tạo liên kết mềm |
+| `watch -n 2` | | Chạy lặp lệnh mỗi 2 giây |
+
+🛑 **`find ... -delete` — quy tắc bắt buộc: LUÔN chạy không có `-delete` trước.**
+
+```bash
+# BƯỚC 1 — XEM sẽ xoá những gì (bắt buộc, không có ngoại lệ)
+find /var/log -name "*.log" -mtime +30 -type f
+
+# BƯỚC 2 — chỉ khi danh sách trên đã ĐÚNG mới thêm -delete
+find /var/log -name "*.log" -mtime +30 -type f -delete
+#     │         │             │          │       └─ xoá, KHÔNG hỏi lại, KHÔNG vào thùng rác
+#     │         │             │          └───────── chỉ file thường (⭐ tránh xoá nhầm thư mục)
+#     │         │             └──────────────────── sửa lần cuối CŨ HƠN 30 ngày
+#     │         └────────────────────────────────── khớp tên
+#     └──────────────────────────────────────────── bắt đầu tìm từ đây (⚠️ gõ nhầm là thảm hoạ)
+```
+
+⚠️ **Thứ tự cờ trong `find` có ý nghĩa!** `-delete` đặt **trước** điều kiện lọc sẽ xoá **mọi thứ** rồi mới lọc:
+
+```bash
+find /data -delete -name "*.tmp"    # 🛑 SAI NGHIÊM TRỌNG: xoá SẠCH /data
+find /data -name "*.tmp" -delete    # ✅ ĐÚNG: lọc trước, xoá sau
+```
+
+⚠️ **Ba mốc thời gian khác nhau, hay bị nhầm:**
+
+| Cờ | Viết tắt | Đổi khi nào |
+|---|---|---|
+| `-mtime` | **m**odify | **Nội dung** file thay đổi |
+| `-atime` | **a**ccess | File được **đọc** (⚠️ nhiều hệ thống tắt để tăng tốc ⇒ **không đáng tin**) |
+| `-ctime` | **c**hange | **Metadata** đổi (quyền, chủ sở hữu) — **KHÔNG phải** "create time" |
+
+🛑 `-ctime` **không phải thời gian tạo file** — đây là hiểu nhầm rất phổ biến. Linux truyền thống **không lưu** thời gian tạo file (ext4 mới có `crtime` nhưng `find` không tra được trực tiếp).
+
+**`-exec` — khi cần làm gì đó phức tạp hơn xoá:**
+
+```bash
+find /var/log -name "*.log" -mtime +7 -exec gzip {} \;
+#                                      │         │  └─ dấu chấm phẩy kết thúc (phải escape bằng \)
+#                                      │         └──── {} = chỗ thay bằng TÊN FILE tìm được
+#                                      └────────────── thực thi lệnh trên MỖI file
+
+find . -name "*.log" -exec gzip {} +
+#                                  └─ dấu + thay cho \; : gom NHIỀU file vào MỘT lần gọi lệnh
+#                                     -> nhanh hơn nhiều khi có hàng nghìn file
+```
+
+⚠️ **Tên file có khoảng trắng làm hỏng pipeline.** `find ... | xargs rm` sẽ tách `my file.txt` thành hai file. Cách an toàn:
+
+```bash
+find . -name "*.tmp" -print0 | xargs -0 rm
+#                     │              └─ đọc theo ký tự NULL
+#                     └──────────────── ngăn cách bằng ký tự NULL thay vì xuống dòng
+#                                       (NULL là ký tự KHÔNG THỂ có trong tên file -> luôn đúng)
+```
+
+**`stat` — đọc thông tin thật của file:**
+
+```bash
+stat -c '%s %U %a %n' app.log
+#     │   │  │  │  └─ n = name
+#     │   │  │  └──── a = quyền dạng SỐ (644)
+#     │   │  └─────── U = tên chủ sở hữu
+#     │   └────────── s = size (byte)
+#     └────────────── c = custom format: chỉ in đúng thứ mình cần
+```
+
+**Symlink — và bẫy đường dẫn tương đối:**
+
+```bash
+ln -s /opt/app/v2 /opt/app/current
+#     │           └─ TÊN LIÊN KẾT (cái mới tạo ra)
+#     └───────────── ĐÍCH (⭐ nên dùng đường dẫn TUYỆT ĐỐI)
+
+readlink -f /opt/app/current      # đi hết chuỗi symlink -> ra đường dẫn thật
+ls -l /opt/app/current            # xem symlink trỏ đi đâu (cột cuối có mũi tên ->)
+```
+
+⚠️ Symlink tạo bằng đường dẫn **tương đối** sẽ **hỏng khi di chuyển** liên kết sang thư mục khác. Dùng đường dẫn tuyệt đối là an toàn nhất.
+
+⚠️ **`watch` và dấu nháy:**
+
+```bash
+watch -n 2 'kubectl get pods -n ai-hub'
+#      │    └─ ⭐ BẮT BUỘC bọc nháy khi lệnh có cờ/pipe,
+#      │       nếu không `watch` nuốt mất phần sau và chạy sai
+#      └────── n = số giây giữa mỗi lần chạy
+
+watch -d -n 2 'kubectl get pods'
+#      └─ d = differences: TÔ SÁNG phần vừa thay đổi so với lần trước ⭐ rất tiện khi theo dõi rollout
+```
+
+</details>
+
 ### Quyền (permission) & Sở hữu (ownership)
 ```bash
 chmod +x script.sh                     # Cấp quyền thực thi
@@ -3294,6 +3815,127 @@ sudo su - <user>                       # Chuyển sang user khác
 sudo !!                                # Chạy lại lệnh trước với sudo
 ```
 
+<details>
+<summary><b>Bấm xem: giải nghĩa hệ thống quyền Linux từ số 0</b></summary>
+
+**Tiền đề — quyền Linux đọc thế nào?** Mỗi file có **9 bit quyền**, chia **3 nhóm × 3 quyền**:
+
+```
+-rwxr-xr--
+│└┬┘└┬┘└┬┘
+│ │  │  └─ OTHERS: mọi người còn lại  -> r--  = chỉ đọc
+│ │  └──── GROUP:  nhóm sở hữu        -> r-x  = đọc + chạy
+│ └─────── USER:   chủ sở hữu         -> rwx  = đọc + ghi + chạy
+└───────── loại: `-` file thường · `d` thư mục · `l` symlink
+```
+
+**Đổi ra số — mỗi quyền một giá trị, cộng lại:**
+
+| Quyền | Chữ | Số |
+|---|---|---|
+| Đọc | `r` | **4** |
+| Ghi | `w` | **2** |
+| Chạy | `x` | **1** |
+
+```
+chmod 755 = rwx r-x r-x
+#      │││
+#      ││└─ others: 5 = 4+1 = r-x (đọc + chạy)
+#      │└── group:  5 = 4+1 = r-x
+#      └─── user:   7 = 4+2+1 = rwx (toàn quyền)
+```
+
+| Số | Nghĩa | Dùng cho |
+|---|---|---|
+| `755` | Chủ toàn quyền, còn lại đọc+chạy | **Thư mục**, script thực thi |
+| `644` | Chủ đọc/ghi, còn lại chỉ đọc | **File thường**, file cấu hình |
+| `600` | ⭐ **Chỉ chủ** đọc/ghi | **SSH key**, `.pgpass`, `.my.cnf`, file chứa secret |
+| `700` | Chỉ chủ toàn quyền | Thư mục `~/.ssh` |
+| `777` | 🛑 **Mọi người toàn quyền** | ❌ **Gần như không bao giờ đúng** |
+
+🛑 **`chmod 777` không phải "cách sửa lỗi permission"** — nó là cách **tắt bỏ bảo mật**. Mọi user trên máy (kể cả tiến trình bị chiếm quyền) đều **ghi đè được** file đó. Lỗi permission thật sự cần sửa **chủ sở hữu** (`chown`), không phải mở toang quyền.
+
+⭐ **`x` trên THƯ MỤC mang nghĩa khác hoàn toàn** — mảnh ghép hay thiếu:
+
+| | Trên **file** | Trên **thư mục** |
+|---|---|---|
+| `r` | Đọc nội dung | **Liệt kê** tên file bên trong (`ls`) |
+| `w` | Sửa nội dung | **Tạo/xoá** file bên trong |
+| `x` | **Chạy** như chương trình | ⭐ **ĐI VÀO** (`cd`), truy cập file bên trong |
+
+⇒ Hệ quả thực tế: thư mục có `r` nhưng **không có `x`** ⇒ `ls` thấy tên file nhưng **mở file nào cũng "Permission denied"**. Ngược lại có `x` mà không `r` ⇒ **không `ls` được**, nhưng biết chính xác tên file thì vẫn mở được.
+
+⇒ Đây là lý do thư mục hầu như luôn là `755` chứ không phải `644`: thiếu `x` là **không ai vào được**.
+
+**Cú pháp chữ — an toàn hơn khi chỉ muốn thêm/bớt một quyền:**
+
+```bash
+chmod +x script.sh        # thêm quyền chạy cho MỌI nhóm (chịu ảnh hưởng của umask)
+chmod u+x script.sh       # chỉ thêm cho user (chủ sở hữu)
+chmod go-w file           # BỚT quyền ghi của group và others
+chmod u=rw,go=r file      # ĐẶT chính xác: = ghi đè, khác với + (thêm) và - (bớt)
+#       │    └─ g=group, o=others
+#       └────── u=user
+```
+
+⭐ **`chmod -R` trên thư mục — bẫy nguy hiểm:**
+
+```bash
+chmod -R 755 /var/www     # 🛑 gán 755 cho CẢ FILE lẫn thư mục
+#                            -> mọi file .conf, .env đều thành CHẠY ĐƯỢC (không cần thiết)
+```
+
+Cách đúng — tách riêng file và thư mục:
+
+```bash
+find /var/www -type d -exec chmod 755 {} +    # thư mục: 755 (cần x để vào)
+find /var/www -type f -exec chmod 644 {} +    # file:    644 (không cần x)
+# hoặc gọn hơn, dùng chữ X HOA:
+chmod -R u=rwX,go=rX /var/www
+#              └─ X HOA = thêm x CHỈ CHO THƯ MỤC (và file vốn đã có x)
+#                 khác hẳn x thường (thêm cho tất cả)
+```
+
+**`chown` — đổi chủ sở hữu:**
+
+```bash
+chown -R app:app /var/www
+#     │   │   └─ nhóm
+#     │   └───── user
+#     └───────── đệ quy
+
+chown :nhommoi file       # chỉ đổi NHÓM (bỏ trống phần user trước dấu :)
+chown --reference=file-mau file-dich   # copy chủ sở hữu từ file khác
+```
+
+⚠️ **Trong container, quyền tính theo SỐ (UID/GID), không theo tên.** File thuộc user `app` (UID 1001) trong container, khi mount ra host sẽ thuộc về **UID 1001 của host** — có thể là một user hoàn toàn khác, hoặc không tồn tại (hiện là số trần). Đây là gốc của lỗi "Permission denied" khi dùng bind mount.
+
+```bash
+id -u && id -g            # xem UID/GID của mình để khớp với container
+docker run --user "$(id -u):$(id -g)" ...    # chạy container bằng đúng danh tính của bạn
+```
+
+**`umask` — quyền mặc định khi tạo file mới:**
+
+```bash
+umask         # thường ra 0022
+# Cách tính: file mới = 666 - umask = 644 · thư mục mới = 777 - umask = 755
+#            (file KHÔNG bao giờ tự có quyền x, nên xuất phát từ 666 chứ không phải 777)
+```
+
+**`sudo` — vài dạng hay dùng:**
+
+| Lệnh | Làm gì |
+|---|---|
+| `sudo -i` | Mở shell root, **nạp cả môi trường** của root |
+| `sudo su - <user>` | Chuyển sang user khác (dấu `-` = nạp môi trường đăng nhập đầy đủ) |
+| `sudo !!` | ⭐ Chạy lại **lệnh vừa gõ** với quyền root (khi quên sudo) |
+| `sudo -l` | ⭐ Liệt kê **mình được phép chạy gì** bằng sudo |
+
+⚠️ `sudo su -` và `sudo su` khác nhau: **có dấu `-`** thì nạp `.bashrc`/`.profile` của user đích (PATH, biến môi trường đúng); **không có** thì giữ môi trường cũ ⇒ hay gây lỗi "command not found" khó hiểu.
+
+</details>
+
 ### User & Nhóm
 ```bash
 whoami                                 # User hiện tại
@@ -3305,6 +3947,117 @@ useradd <user> / userdel <user>        # Thêm / xóa user
 passwd <user>                          # Đổi mật khẩu
 usermod -aG <group> <user>             # Thêm user vào nhóm
 ```
+
+<details>
+<summary><b>Bấm xem: giải nghĩa lệnh quản lý user & nhóm</b></summary>
+
+| Lệnh | Trả về / làm gì |
+|---|---|
+| `whoami` | Tên user **hiệu lực** hiện tại |
+| `id` | UID, GID và **mọi nhóm** đang thuộc về |
+| `id <user>` | Thông tin của user khác |
+| `groups` | Chỉ danh sách nhóm |
+| `who` | Ai đang đăng nhập |
+| `w` | Như `who` **+ họ đang chạy lệnh gì** + load average |
+| `last` | **Lịch sử** đăng nhập (đọc từ `/var/log/wtmp`) |
+| `lastb` | Lịch sử đăng nhập **THẤT BẠI** ⭐ (dấu hiệu bị dò mật khẩu) |
+
+⭐ **`id` là lệnh đáng dùng nhất** — nó cho biết cả nhóm phụ, thứ quyết định bạn truy cập được gì:
+
+```bash
+id
+# uid=1000(kiennv) gid=1000(kiennv) groups=1000(kiennv),27(sudo),999(docker)
+#     │              │                              │        └─ ⭐ thuộc nhóm docker = có quyền ngang root!
+#     │              │                              └─ được dùng sudo
+#     │              └─ nhóm CHÍNH (file mới tạo sẽ thuộc nhóm này)
+#     └─ số định danh user (cái Linux thực sự dùng; tên chỉ để cho người đọc)
+```
+
+🛑 **Nhóm `docker` tương đương quyền root** — mảnh ghép an toàn hay bị bỏ qua. Ai vào được nhóm `docker` đều có thể mount toàn bộ ổ đĩa host vào container và chiếm quyền root:
+
+```bash
+docker run -v /:/host -it alpine chroot /host sh   # <- toàn quyền hệ thống, không cần sudo
+```
+
+⇒ Vì vậy, thêm user vào nhóm `docker` phải được coi là **cấp quyền quản trị**, không phải "cho tiện dùng docker".
+
+**Tạo và quản lý user:**
+
+```bash
+useradd -m -s /bin/bash -G docker,sudo deployer
+#        │  │            └─ G = nhóm PHỤ, nhiều nhóm cách nhau bằng dấu phẩy
+#        │  └─ shell đăng nhập (không có thì mặc định /bin/sh hoặc nologin)
+#        └──── m = tạo luôn thư mục /home/deployer (⚠️ THIẾU cờ này là user không có home)
+
+adduser deployer      # ⭐ trên Debian/Ubuntu: bản thân thiện, HỎI TỪNG BƯỚC, tự tạo home
+```
+
+⚠️ **`useradd` vs `adduser`**: `useradd` là lệnh gốc, **không tự tạo home**, cần đủ cờ. `adduser` là script bao bọc (chỉ có trên Debian/Ubuntu), hỏi tương tác và đặt mặc định hợp lý. Trên RHEL/CentOS **chỉ có `useradd`**.
+
+🛑 **`usermod -G` KHÔNG có `-a` là XOÁ hết nhóm cũ:**
+
+```bash
+usermod -aG docker deployer     # ✅ ĐÚNG: a = append, THÊM vào các nhóm đang có
+usermod -G docker deployer      # 🛑 SAI: user bị GỠ khỏi MỌI nhóm khác, chỉ còn docker
+#                                  -> mất luôn quyền sudo, không cảnh báo gì
+```
+
+⇒ Đây là lỗi kinh điển khiến người vừa được cấp quyền docker thì **mất quyền sudo**. Kiểm chứng ngay sau khi chạy:
+
+```bash
+id deployer     # đối chiếu danh sách nhóm có đủ như trước không
+```
+
+⚠️ **Thay đổi nhóm chỉ có hiệu lực ở phiên đăng nhập MỚI.** Vừa `usermod -aG docker` xong mà gõ `docker ps` vẫn báo permission denied ⇒ **không phải lệnh sai**, mà phiên hiện tại vẫn giữ danh sách nhóm cũ. Cách xử lý:
+
+```bash
+newgrp docker     # nạp nhóm mới cho shell hiện tại (không cần đăng xuất)
+# hoặc: đăng xuất rồi đăng nhập lại (chắc chắn nhất)
+```
+
+**Mật khẩu & khoá tài khoản:**
+
+```bash
+passwd deployer            # đặt/đổi mật khẩu
+passwd -l deployer         # l = lock: KHOÁ đăng nhập bằng mật khẩu (SSH key VẪN vào được!)
+passwd -S deployer         # S = status: xem trạng thái (P=có mật khẩu, L=khoá, NP=trống)
+chage -l deployer          # xem hạn mật khẩu, ngày hết hạn tài khoản
+usermod -s /sbin/nologin deployer   # ⭐ CHẶN đăng nhập hoàn toàn (dùng cho user chạy service)
+```
+
+🛑 **`passwd -l` KHÔNG chặn được SSH key** — chỉ khoá đường đăng nhập bằng mật khẩu. Muốn chặn triệt để user đã bị thu hồi quyền:
+
+```bash
+usermod -s /sbin/nologin deployer          # 1. bỏ shell đăng nhập
+usermod -L -e 1 deployer                   # 2. khoá + đặt hạn tài khoản vào quá khứ
+mv /home/deployer/.ssh/authorized_keys{,.disabled}   # 3. ⭐ vô hiệu hoá SSH key
+#                                    └─ cú pháp mở rộng dấu ngoặc của bash:
+#                                       đổi tên thành authorized_keys.disabled
+```
+
+**Xoá user:**
+
+```bash
+userdel deployer            # xoá user, GIỮ lại thư mục /home
+userdel -r deployer         # r = remove: xoá CẢ thư mục home và hộp thư
+```
+
+⚠️ Trước khi xoá, **kiểm tra user còn tiến trình nào đang chạy không** — xoá user mà tiến trình còn sống sẽ để lại tiến trình "mồ côi" thuộc về một UID không còn tên:
+
+```bash
+ps -u deployer          # liệt kê tiến trình của user này
+pkill -u deployer       # dừng hết trước khi xoá
+```
+
+⚠️ **File cũ của user bị xoá vẫn nằm rải rác** trên hệ thống, giờ hiện chủ sở hữu là **số UID trần** (ví dụ `1003`). Tìm chúng:
+
+```bash
+find / -nouser -o -nogroup 2>/dev/null
+#       │         └─ không thuộc nhóm nào còn tồn tại
+#       └─────────── không thuộc user nào còn tồn tại
+```
+
+</details>
 
 ---
 
@@ -3324,6 +4077,131 @@ ssh-copy-id user@host                  # Copy public key lên server (login khô
 cat ~/.ssh/config                      # Cấu hình SSH (Host, HostName, User...)
 ```
 
+<details>
+<summary><b>Bấm xem: giải nghĩa cờ SSH, tunnel, và file ~/.ssh/config</b></summary>
+
+| Cờ | Viết tắt của | Làm gì |
+|---|---|---|
+| `-p` | **p**ort | Cổng SSH (⚠️ **chữ thường**; `scp` lại dùng `-P` HOA) |
+| `-i` | **i**dentity | Dùng **private key** cụ thể |
+| `-v` | **v**erbose | Debug. `-vv`, `-vvv` càng chi tiết hơn |
+| `-L` | **L**ocal forward | ⭐ Mở port ở **máy bạn**, chuyển tới đích qua server |
+| `-R` | **R**emote forward | Ngược lại: mở port **trên server**, chuyển về máy bạn |
+| `-D` | **D**ynamic | SOCKS proxy (như một VPN nhẹ) |
+| `-N` | **N**o command | **Không** mở shell — chỉ dựng tunnel |
+| `-f` | **f**ork | Đẩy xuống chạy nền |
+| `-J` | **J**ump | Nhảy qua máy trung gian (bastion) |
+| `-o` | **o**ption | Đặt tuỳ chọn ngay trên dòng lệnh |
+
+⭐ **`-L` — Local port forward, bóc kỹ vì hay gõ nhầm thứ tự:**
+
+```bash
+ssh -L 15432:db-noibo:5432 user@bastion
+#      │     │         │    └─ SSH VÀO máy này (máy trung gian)
+#      │     │         └────── port ở ĐÍCH CUỐI
+#      │     └──────────────── ĐÍCH CUỐI, tính TỪ GÓC NHÌN CỦA BASTION
+#      └────────────────────── port mở trên MÁY BẠN
+```
+
+⇒ Sau lệnh này: ở máy bạn gõ `psql -h localhost -p 15432` là **vào được database nội bộ** mà máy bạn **không hề có đường mạng trực tiếp** tới nó.
+
+🛑 **Điểm hay hiểu sai nhất**: `db-noibo` được phân giải **trên bastion**, không phải trên máy bạn. Máy bạn không cần biết tên đó là gì, không cần DNS phân giải được.
+
+**Dựng tunnel không mở shell — dạng hay dùng nhất:**
+
+```bash
+ssh -fNL 15432:db-noibo:5432 user@bastion
+#    │││
+#    ││└─ L: local forward
+#    │└── N: không chạy lệnh nào, chỉ giữ tunnel
+#    └─── f: đẩy xuống nền, trả prompt lại ngay
+```
+
+Đóng tunnel sau khi xong (vì nó chạy nền, Ctrl+C không tắt được):
+
+```bash
+pkill -f "ssh -fNL 15432"        # tìm theo dòng lệnh rồi dừng
+ss -tlnp | grep 15432            # kiểm tra port đã được giải phóng chưa
+```
+
+⭐ **`-J` (Jump) — thay cho tunnel lồng nhau rối rắm:**
+
+```bash
+ssh -J user@bastion user@server-noibo
+#    └─ tự động nhảy qua bastion rồi tới đích, KHÔNG cần dựng tunnel thủ công
+#       nhiều chặng: -J user@bastion1,user@bastion2
+```
+
+⭐ **`~/.ssh/config` — viết một lần, đỡ gõ mãi mãi:**
+
+```
+Host prod-db
+    HostName 10.20.30.40
+    User deployer
+    Port 2222
+    IdentityFile ~/.ssh/id_ed25519_prod
+    ProxyJump bastion              # <- tự nhảy qua bastion, tương đương -J
+    ServerAliveInterval 60         # <- ⭐ gửi gói giữ nhịp mỗi 60 giây
+    ServerAliveCountMax 3          #    3 lần không hồi đáp thì mới ngắt
+
+Host *
+    AddKeysToAgent yes
+    ServerAliveInterval 60
+```
+
+⇒ Từ đó chỉ cần gõ **`ssh prod-db`**. `scp`, `rsync`, `git` **đều đọc file này**, nên cấu hình một lần dùng cho mọi công cụ.
+
+⭐ **`ServerAliveInterval` — chữa dứt điểm bệnh "SSH tự rớt khi để yên vài phút".** Nguyên nhân là firewall/NAT ở giữa **dọn bỏ kết nối im lặng**. Gói giữ nhịp làm kết nối luôn "có hoạt động" nên không bị dọn.
+
+**Tạo và cài key:**
+
+```bash
+ssh-keygen -t ed25519 -C "kiennv@company.vn" -f ~/.ssh/id_ed25519_prod
+#           │          │                      └─ tên file (⭐ đặt riêng cho từng hệ thống)
+#           │          └───── C = comment: ghi chú để sau này biết key của ai/việc gì
+#           └──────────────── t = type: ed25519 ⭐ hiện đại, ngắn, nhanh, an toàn
+#                             (RSA cũ hơn: nếu buộc phải dùng thì tối thiểu -b 4096)
+
+ssh-copy-id -i ~/.ssh/id_ed25519_prod.pub user@host
+#            └─ ⚠️ đẩy file .pub (khoá CÔNG KHAI). TUYỆT ĐỐI không đưa file không có .pub đi đâu
+```
+
+🛑 **Quyền file SSH bắt buộc — sai là SSH TỪ CHỐI, và thông báo lỗi không nói rõ:**
+
+| Đường dẫn | Quyền bắt buộc |
+|---|---|
+| `~/.ssh` | `700` |
+| `~/.ssh/id_ed25519` (private key) | **`600`** |
+| `~/.ssh/id_ed25519.pub` | `644` |
+| `~/.ssh/authorized_keys` | `600` |
+| `~` (thư mục home) | Không được cho **group/others quyền ghi** |
+
+```bash
+chmod 700 ~/.ssh && chmod 600 ~/.ssh/id_* ~/.ssh/authorized_keys
+```
+
+⇒ Lỗi `WARNING: UNPROTECTED PRIVATE KEY FILE!` chính là ca này. Và ít ai ngờ: **thư mục home bị `chmod 777`** cũng khiến SSH key **im lặng không hoạt động**.
+
+**Debug khi không vào được — đọc `-v` đúng chỗ:**
+
+```bash
+ssh -vvv user@host 2>&1 | grep -iE "debug1: (Offering|Authentications|Next auth)"
+#    │                            └─ ba dòng quan trọng nhất trong đống output
+#    └─ ba chữ v = mức chi tiết cao nhất
+```
+
+| Dòng trong output | Nghĩa |
+|---|---|
+| `Offering public key: ...` | Client **đang thử** key này |
+| `Authentications that can continue: publickey,password` | Server **chấp nhận** những cách nào |
+| `Permission denied (publickey)` | Server **chỉ nhận key**, và key của bạn **không khớp** |
+
+⇒ Nếu không thấy dòng `Offering` nào ⇒ client **chưa tìm ra key** ⇒ vấn đề ở phía bạn (sai đường dẫn `-i`, sai config), không phải ở server.
+
+⚠️ Debug từ **phía server** (khi có quyền): `journalctl -u sshd -f` — server ghi rõ lý do từ chối (sai quyền file, user bị khoá, key không có trong `authorized_keys`).
+
+</details>
+
 ### Truyền file
 ```bash
 scp file.txt user@host:/path           # Copy file lên server
@@ -3334,6 +4212,102 @@ rsync -avz --delete <src> <dest>       # Đồng bộ + xóa file thừa ở đ�
 rsync -avz --progress <src> <dest>     # Hiện tiến trình
 rsync -avz -e "ssh -p 2222" <src> <dest>   # Rsync qua SSH port tùy chỉnh
 ```
+
+<details>
+<summary><b>Bấm xem: giải nghĩa scp/rsync — và dấu `/` cuối đường dẫn quyết định mọi thứ</b></summary>
+
+| Cờ | Viết tắt của | Làm gì |
+|---|---|---|
+| `-r` (scp) | **r**ecursive | Copy cả thư mục |
+| `-P` (scp) | **P**ort | ⚠️ **Chữ HOA** — `ssh` dùng `-p` thường! |
+| `-a` (rsync) | **a**rchive | ⭐ Gói gọn: đệ quy + giữ quyền, chủ sở hữu, thời gian, symlink |
+| `-v` (rsync) | **v**erbose | Liệt kê file đang truyền |
+| `-z` (rsync) | **z**ip | Nén khi truyền (⭐ đáng giá khi mạng chậm) |
+| `-h` (rsync) | **h**uman | Số liệu dễ đọc |
+| `--progress` | | Thanh tiến trình từng file |
+| `--delete` | | 🛑 **Xoá** file ở đích mà nguồn không có |
+| `--dry-run` / `-n` | | ⭐ **Diễn tập**, không truyền thật |
+| `-e` | **e**xecute | Chỉ định lệnh kết nối (để đổi port SSH) |
+| `--exclude` | | Bỏ qua theo mẫu |
+
+⚠️ **`-P` hoa của scp vs `-p` thường của ssh** — nguồn gõ nhầm kinh điển:
+
+```bash
+ssh  -p 2222 user@host           # ssh:  p THƯỜNG
+scp  -P 2222 file user@host:/tmp # scp:  P HOA (p thường ở scp nghĩa là "giữ mốc thời gian")
+rsync -e "ssh -p 2222" src dst   # rsync: không có cờ port riêng, phải truyền qua -e
+```
+
+🛑🛑 **Dấu `/` ở CUỐI đường dẫn nguồn của rsync — khác biệt lớn nhất, sai là đổ nhầm chỗ:**
+
+```bash
+rsync -av /data/  user@host:/backup/     # CÓ dấu / -> đổ NỘI DUNG BÊN TRONG data vào /backup
+#              └─ kết quả: /backup/file1, /backup/file2
+
+rsync -av /data   user@host:/backup/     # KHÔNG có / -> đổ CẢ THƯ MỤC data vào trong
+#                                           kết quả: /backup/data/file1, /backup/data/file2
+```
+
+⇒ Cách nhớ: **dấu `/` cuối = "lấy ruột bên trong"** · **không có `/` = "lấy cả cái hộp"**.
+
+🛑 **`--delete` — kết hợp với sai dấu `/` là thảm hoạ.** Nó xoá **mọi thứ ở đích không có trong nguồn**. Chỉ định nhầm nguồn ⇒ **xoá sạch thư mục đích**.
+
+⇒ **Quy tắc bắt buộc: luôn chạy `--dry-run` trước khi dùng `--delete`:**
+
+```bash
+# BƯỚC 1 — diễn tập, đọc kỹ danh sách sẽ xoá
+rsync -avn --delete /data/ user@host:/backup/
+#         └─ n = dry-run: chỉ IN RA sẽ làm gì, KHÔNG đụng vào file
+#            (dòng bắt đầu bằng "deleting " chính là thứ sắp mất)
+
+# BƯỚC 2 — chỉ khi danh sách đã đúng
+rsync -av --delete /data/ user@host:/backup/
+```
+
+⭐ **`rsync` hơn `scp` ở đâu?**
+
+| | `scp` | `rsync` |
+|---|---|---|
+| Truyền lại lần 2 | **Copy lại toàn bộ** | ⭐ **Chỉ gửi phần khác biệt** |
+| Bị đứt giữa chừng | Phải làm lại từ đầu | ⭐ Chạy lại là **tiếp tục** |
+| Giữ quyền/thời gian | Hạn chế | ✅ Đầy đủ (với `-a`) |
+| Loại trừ file | ❌ Không | ✅ `--exclude` |
+| Xem trước | ❌ Không | ✅ `--dry-run` |
+
+⇒ **Gần như luôn nên dùng `rsync`.** `scp` chỉ tiện cho một file nhỏ, và bản OpenSSH mới đã coi `scp` là **lỗi thời** (nó chuyển sang chạy nền bằng giao thức SFTP).
+
+**Đồng bộ thực tế — bộ cờ hay dùng:**
+
+```bash
+rsync -avz --progress --exclude={'.git','node_modules','*.log'} \
+      -e "ssh -p 2222 -i ~/.ssh/id_ed25519_prod" \
+      ./app/ deployer@server:/opt/app/
+#      │                    └─ đích
+#      └─ nguồn (⭐ CÓ dấu / = đổ ruột vào /opt/app)
+```
+
+⚠️ **`-a` không bao gồm `-z`.** Mạng nội bộ nhanh thì `-z` **làm chậm hơn** (tốn CPU nén). Chỉ dùng `-z` khi đường truyền là nút thắt (VPN, Internet).
+
+⚠️ **`-a` giữ nguyên chủ sở hữu** ⇒ cần **quyền root ở đích** mới đặt được, nếu không rsync báo lỗi hoặc âm thầm gán cho user hiện tại. Không cần giữ chủ sở hữu thì bỏ bớt:
+
+```bash
+rsync -rlptDvz src/ dst/      # như -a nhưng KHÔNG giữ owner/group
+#      ││││└─ D = giữ file thiết bị
+#      │││└── t = giữ mốc thời gian
+#      ││└─── p = giữ quyền
+#      │└──── l = giữ symlink
+#      └───── r = đệ quy
+```
+
+⭐ **Kiểm tra sau khi truyền** — đừng tin "không báo lỗi là xong":
+
+```bash
+rsync -avn --checksum /data/ user@host:/backup/
+#          └─ so sánh bằng NỘI DUNG (checksum) thay vì kích thước+thời gian
+#             chậm hơn nhưng chắc chắn; không in ra gì = hai bên GIỐNG HỆT
+```
+
+</details>
 
 ### Nén & giải nén
 ```bash
@@ -3346,6 +4320,107 @@ unzip archive.zip                      # Giải nén zip
 unzip -l archive.zip                   # Xem nội dung zip
 gzip file / gunzip file.gz             # Nén / giải nén 1 file
 ```
+
+<details>
+<summary><b>Bấm xem: giải nghĩa cờ tar — cụm chữ cái khó nhớ nhất Linux</b></summary>
+
+**Vì sao `tar` khó nhớ?** Vì tên nó là **t**ape **ar**chive — sinh ra từ thời lưu vào **băng từ**, nên cú pháp giữ lại lối cũ: các chữ cái **dính liền nhau, không có dấu gạch**.
+
+| Chữ | Viết tắt của | Làm gì |
+|---|---|---|
+| `c` | **c**reate | **TẠO** file nén mới |
+| `x` | e**x**tract | **GIẢI NÉN** |
+| `t` | lis**t** | **XEM** nội dung, **không** giải nén |
+| `z` | g**z**ip | Nén/giải bằng gzip (`.gz`) |
+| `j` | b**j**zip2 | Bzip2 (`.bz2`) — nén nhỏ hơn, chậm hơn |
+| `J` | **J** = xz | XZ (`.xz`) — nhỏ nhất, chậm nhất |
+| `v` | **v**erbose | Liệt kê từng file khi chạy |
+| `f` | **f**ile | ⭐ **Chỉ định tên file** — phải là **chữ CUỐI CÙNG** |
+| `-C` | **C**hange dir | Chuyển thư mục **trước khi** làm việc |
+
+⭐ **Ba cụm cần thuộc — chỉ khác chữ đầu:**
+
+```bash
+tar -czvf archive.tar.gz thumuc/    # TẠO   (c)
+tar -xzvf archive.tar.gz            # GIẢI  (x)
+tar -tzvf archive.tar.gz            # XEM   (t) - an toàn, không ghi gì ra đĩa
+#    ││││
+#    │││└─ f = file: tên file, PHẢI đứng cuối vì chữ ngay sau f là tên file
+#    ││└── v = verbose (bỏ được nếu không muốn ngập màn hình)
+#    │└─── z = gzip
+#    └──── c/x/t = tạo / giải / xem
+```
+
+🛑 **`f` phải là chữ CUỐI.** Gõ `tar -cfzv archive.tar.gz thumuc/` ⇒ tar hiểu tên file là **`z`** ⇒ tạo ra một file tên `z` và báo lỗi khó hiểu.
+
+⭐ **Luôn `t` (xem) trước khi `x` (giải nén)** — vì có loại "tar bomb": file nén không có thư mục gốc, giải ra là **hàng trăm file đổ thẳng vào thư mục hiện tại**:
+
+```bash
+tar -tzvf archive.tar.gz | head       # xem trước 10 dòng: mọi thứ có nằm trong MỘT thư mục không?
+```
+
+**`-C` — giải nén vào đúng chỗ mình muốn:**
+
+```bash
+tar -xzvf backup.tar.gz -C /opt/app/
+#                        └─ CHUYỂN vào thư mục này rồi mới giải nén
+#                           (thay cho: cd /opt/app && tar -xzvf ...)
+
+tar -czvf app.tar.gz -C /opt app
+#                     │      └─ nén thư mục "app"
+#                     └─ đứng từ /opt mà nhìn
+#  => bên trong file nén, đường dẫn là "app/..." chứ KHÔNG phải "/opt/app/..."
+```
+
+⚠️ **Vì sao cần `-C` khi nén?** Nếu gõ `tar -czvf app.tar.gz /opt/app`, tar cảnh báo *"Removing leading `/`"* và lưu đường dẫn `opt/app/...`. Giải nén ra sẽ tạo thêm tầng `opt/app` không mong muốn. Dùng `-C` cho đường dẫn bên trong gọn và đúng ý.
+
+**So sánh các kiểu nén — chọn theo tình huống:**
+
+| Kiểu | Cờ | Tốc độ | Tỷ lệ nén | Dùng khi |
+|---|---|---|---|---|
+| gzip | `z` | Nhanh | Trung bình | ⭐ Mặc định, tương thích rộng nhất |
+| bzip2 | `j` | Chậm | Tốt | Ít dùng |
+| xz | `J` | Rất chậm | ⭐ Tốt nhất | Lưu trữ lâu dài, đẩy qua mạng chậm |
+| Không nén | (bỏ) | Nhanh nhất | Không | Dữ liệu vốn đã nén (ảnh, video, `.gz`) |
+
+💡 Bản `tar` mới **tự nhận diện kiểu nén** khi giải nén — `tar -xvf file.tar.xz` chạy được mà không cần `J`. Nhưng khi **tạo** thì vẫn phải ghi rõ.
+
+**Loại trừ và giữ đúng thứ cần:**
+
+```bash
+tar -czvf app.tar.gz --exclude='node_modules' --exclude='*.log' -C /opt app
+#                     └─ đặt TRƯỚC đường dẫn nguồn; dùng nhiều lần được
+```
+
+⚠️ Bọc mẫu trong **nháy đơn** để shell không tự mở rộng `*` trước khi tar nhìn thấy.
+
+**zip / unzip — khi phải trao đổi với Windows:**
+
+```bash
+zip -r archive.zip thumuc/ -x '*.log' '*/node_modules/*'
+#    │                      └─ x = exclude (⚠️ zip dùng -x, tar dùng --exclude)
+#    └─ r = recursive (⚠️ tar KHÔNG cần cờ này, zip thì CÓ)
+
+unzip -l archive.zip           # l = list: XEM trước, không giải
+unzip archive.zip -d /opt/app  # d = directory: giải vào thư mục chỉ định (tar dùng -C)
+```
+
+⚠️ **`zip` KHÔNG giữ quyền file Unix** đầy đủ và hay làm hỏng dấu tiếng Việt trong tên file khi qua lại giữa Windows/Linux. ⇒ Trong nội bộ Linux, **luôn ưu tiên `tar.gz`**.
+
+**Vài mẹo hay dùng:**
+
+```bash
+# Nén và truyền thẳng qua SSH, KHÔNG tạo file trung gian (tiết kiệm disk)
+tar -czf - /opt/app | ssh user@host "cat > /backup/app.tar.gz"
+#         └─ dấu - = ghi ra ĐẦU RA CHUẨN thay vì ra file
+
+# Xem dung lượng thật bên trong mà không giải nén
+tar -tzvf archive.tar.gz | awk '{s+=$3} END {print s/1024/1024 " MB"}'
+#                                │            └─ đổi byte sang MB
+#                                └─ cột 3 là kích thước từng file
+```
+
+</details>
 
 ---
 
@@ -3369,6 +4444,122 @@ wget -c <url>                          # Tải tiếp (resume)
 http GET <url>                         # HTTPie (dễ đọc hơn curl, nếu có cài)
 ```
 
+<details>
+<summary><b>Bấm xem: giải nghĩa TOÀN BỘ cờ curl hay dùng</b></summary>
+
+| Cờ | Viết tắt của | Làm gì |
+|---|---|---|
+| `-I` | head (chữ **I** hoa) | Chỉ lấy **header**, gửi request kiểu `HEAD` |
+| `-i` | **i**nclude | ⭐ Lấy **header + nội dung** (khác `-I` hoa!) |
+| `-v` | **v**erbose | Chi tiết: DNS, TCP, bắt tay TLS, header hai chiều |
+| `-L` | **L**ocation | **Đi theo** chuyển hướng (301/302) |
+| `-X` | request method | Đổi phương thức: `POST`, `PUT`, `DELETE` |
+| `-d` | **d**ata | Nội dung gửi lên (tự thành `POST` nếu chưa có `-X`) |
+| `-H` | **H**eader | Thêm header |
+| `-o` | **o**utput | Lưu vào file |
+| `-O` | **O** hoa | Lưu, **giữ nguyên tên file** trên URL |
+| `-s` | **s**ilent | Tắt thanh tiến trình |
+| `-S` | **S**how error | Vẫn hiện lỗi khi đang `-s` (cặp `-sS` rất hay dùng) |
+| `-k` | (insecure) | 🛑 **Bỏ qua kiểm tra chứng chỉ TLS** |
+| `-w` | **w**rite-out | In thêm số liệu sau khi xong |
+| `-f` | **f**ail | Trả **mã thoát khác 0** khi HTTP lỗi (⭐ cần cho script) |
+| `--resolve` | | Ép một domain trỏ về IP chỉ định |
+| `-u` | **u**ser | Xác thực cơ bản `user:pass` |
+| `--max-time` | | Tổng thời gian tối đa |
+
+⚠️ **`-I` hoa vs `-i` thường — hai lệnh hoàn toàn khác nhau:**
+
+| | `-I` (hoa) | `-i` (thường) |
+|---|---|---|
+| Gửi phương thức | **HEAD** | GET (hoặc method bạn chọn) |
+| Nhận về | Chỉ header | Header **+ nội dung** |
+| Rủi ro | ⚠️ Một số server **xử lý HEAD khác GET** ⇒ kết quả gây hiểu lầm | Phản ánh đúng thực tế |
+
+⇒ Khi debug "API trả về gì", dùng **`-i`**. `-I` chỉ để xem nhanh header.
+
+🛑 **`-k` — hiểu rõ hậu quả trước khi dùng.** Nó **tắt toàn bộ việc xác thực danh tính server** ⇒ không phân biệt được server thật với kẻ đứng giữa. Chỉ chấp nhận được khi **debug nội bộ với cert tự ký**.
+
+⇒ **Cái gì thay thế?** Nạp đúng CA nội bộ thay vì tắt kiểm tra:
+
+```bash
+curl --cacert /etc/ssl/certs/company-ca.crt https://api.noibo.vn/health
+#     └─ tin CA này -> vẫn xác thực đầy đủ, không mở lỗ hổng
+```
+
+⭐ **Đo hiệu năng — tách được chậm ở chặng nào:**
+
+```bash
+curl -o /dev/null -sS -w "DNS:%{time_namelookup}s TCP:%{time_connect}s TLS:%{time_appconnect}s TTFB:%{time_starttransfer}s Total:%{time_total}s Code:%{http_code}\n" \
+     https://api.company.vn/health
+#     │                       └─ TTFB = Time To First Byte: server bắt đầu trả lời sau bao lâu
+#     └─ vứt nội dung đi, chỉ giữ số liệu
+```
+
+| Chỉ số cao bất thường | Nút thắt nằm ở |
+|---|---|
+| `time_namelookup` | **DNS** |
+| `time_connect` | **Mạng/TCP** (độ trễ đường truyền) |
+| `time_appconnect` | **Bắt tay TLS** |
+| `time_starttransfer` cao, các mục trên thấp | ⭐ **Ứng dụng phía server xử lý chậm** |
+
+**POST JSON — dạng chuẩn:**
+
+```bash
+curl -sS -X POST https://api.company.vn/v1/users \
+     -H "Content-Type: application/json" \
+     -H "Authorization: Bearer $TOKEN" \
+     -d '{"name":"Kien","role":"devops"}'
+#        └─ ⭐ nháy ĐƠN bọc JSON: giữ nguyên dấu " bên trong, shell không diễn giải $
+```
+
+⚠️ **Dữ liệu dài thì đọc từ file** thay vì nhét vào dòng lệnh (tránh lỗi escape và lộ trong `ps`):
+
+```bash
+curl -sS -X POST <url> -H "Content-Type: application/json" -d @payload.json
+#                                                             └─ dấu @ = ĐỌC TỪ FILE
+```
+
+⚠️ **Token trong dòng lệnh lọt vào `ps aux` và lịch sử shell.** An toàn hơn:
+
+```bash
+curl -sS -H @<(echo "Authorization: Bearer $TOKEN") <url>
+# hoặc dùng file cấu hình:
+curl -sS --config curl-auth.txt <url>     # file chứa: header = "Authorization: Bearer xxx"
+```
+
+⭐ **`--resolve` — test server cụ thể mà không cần sửa `/etc/hosts`:**
+
+```bash
+curl -v --resolve api.company.vn:443:10.0.0.5 https://api.company.vn/health
+#                 │                │
+#                 │                └─ ép trỏ về IP này
+#                 └─ domain:port
+```
+
+⇒ Rất hữu ích khi có **nhiều pod/node sau load balancer** và muốn kiểm tra **đúng một cái**, đồng thời vẫn gửi đúng tên miền trong SNI và header `Host` (nên cert vẫn hợp lệ).
+
+⭐ **`-f` — bắt buộc trong script:** mặc định curl trả **mã thoát 0** ngay cả khi server trả **404 hoặc 500** (vì "kết nối thành công"). Script sẽ tưởng là ổn:
+
+```bash
+curl -fsS https://api.company.vn/health || echo "API LỖI"
+#     │└┴─ s = im lặng, S = nhưng vẫn hiện lỗi
+#     └─── f = HTTP >= 400 thì TRẢ LỖI thật sự
+```
+
+**Thử lại và giới hạn thời gian — cần cho môi trường mạng không ổn định:**
+
+```bash
+curl -sS --retry 3 --retry-delay 2 --max-time 30 --connect-timeout 5 <url>
+#         │         │               │            └─ chỉ riêng bước kết nối: 5 giây
+#         │         │               └─ TỔNG thời gian tối đa: 30 giây
+#         │         └─ chờ 2 giây giữa các lần thử
+#         └─ thử lại tối đa 3 lần
+```
+
+⚠️ **`wget` vs `curl`**: `wget` chuyên **tải file** (có `-c` để tải tiếp khi đứt, tải đệ quy cả site); `curl` chuyên **gọi API** (in ra màn hình, nhiều tuỳ chọn giao thức hơn). Trên Alpine thường **chỉ có `wget`** của busybox — bộ cờ rút gọn hơn nhiều.
+
+</details>
+
 ### SSL / Certificate (check hết hạn, cấu hình)
 ```bash
 # Xem cert của 1 domain (ngày hết hạn, issuer...)
@@ -3381,6 +4572,118 @@ curl -vI https://<host> 2>&1 | grep -i "expire"   # Xem hạn cert nhanh
 nmap --script ssl-cert -p 443 <host>   # Quét thông tin SSL
 ```
 
+<details>
+<summary><b>Bấm xem: giải nghĩa openssl — và vì sao thiếu `echo |` thì bị treo</b></summary>
+
+| Cờ | Viết tắt của | Làm gì |
+|---|---|---|
+| `s_client` | SSL client | Đóng vai **trình duyệt**, thực hiện bắt tay TLS |
+| `-connect` | | `host:port` cần nối tới |
+| `-servername` | SNI | ⭐ Báo **tên miền** muốn truy cập |
+| `x509` | | Bộ công cụ đọc **chứng chỉ** |
+| `-in` | input | Đọc từ file |
+| `-noout` | | **Không** in cert dạng mã hoá thô |
+| `-text` | | In **toàn bộ** nội dung cert dạng người đọc được |
+| `-dates` | | Chỉ ngày hiệu lực & hết hạn |
+| `-subject` | | Cert cấp **cho ai** |
+| `-issuer` | | **Ai cấp** |
+| `-checkend N` | | Trả **thành công** nếu cert còn hạn ít nhất N giây |
+| `-showcerts` | | Hiện **cả chuỗi** cert trung gian |
+
+🛑 **Vì sao BẮT BUỘC có `echo |` ở đầu?**
+
+`openssl s_client` bắt tay TLS xong sẽ **mở phiên tương tác** chờ bạn gõ dữ liệu (giống telnet). Không có gì đẩy vào ⇒ nó **đứng chờ vô hạn** ⇒ trông y như lệnh bị treo.
+
+```bash
+echo | openssl s_client -connect api.company.vn:443 -servername api.company.vn 2>/dev/null \
+     | openssl x509 -noout -dates -subject -issuer
+# │                                                  │
+# │                                                  └─ vứt thông báo phụ (không phải lỗi)
+# └─ gửi một dòng rỗng -> openssl đóng kết nối và thoát ngay
+```
+
+⇒ **Cái gì thay thế `echo |`?** Cờ `-brief` (bản mới) hoặc `< /dev/null`:
+
+```bash
+openssl s_client -connect api.company.vn:443 -servername api.company.vn < /dev/null
+#                                                                       └─ đọc từ "hư vô" = EOF ngay
+```
+
+🛑 **`-servername` (SNI) — thiếu là chẩn đoán sai.** Một địa chỉ IP thường phục vụ **nhiều tên miền TLS**. Không báo tên miền ⇒ server trả về **cert mặc định của domain khác** ⇒ bạn kết luận "cert sai/hết hạn" trong khi cert thật hoàn toàn ổn.
+
+⇒ **Quy tắc: luôn ghi `-servername` giống hệt phần host trong `-connect`.**
+
+**Kiểm tra hạn cert — dùng cho script cảnh báo:**
+
+```bash
+echo | openssl s_client -connect api.company.vn:443 -servername api.company.vn 2>/dev/null \
+  | openssl x509 -noout -checkend 604800 \
+  && echo "OK: còn hạn trên 7 ngày" || echo "CẢNH BÁO: hết hạn trong 7 ngày!"
+#                    └─ 604800 giây = 7 × 24 × 3600
+```
+
+⭐ **`-checkend` trả về mã thoát**, nên ghép thẳng vào `&&`/`||` được — không cần tự so sánh ngày tháng.
+
+**Đọc file cert trên đĩa:**
+
+```bash
+openssl x509 -in cert.pem -noout -text | head -20   # xem tổng quan
+openssl x509 -in cert.pem -noout -dates             # chỉ ngày
+openssl x509 -in cert.pem -noout -ext subjectAltName
+#                                 └─ ⭐ SAN: danh sách MỌI domain cert này có hiệu lực
+```
+
+⭐ **SAN (Subject Alternative Name) — mảnh ghép hay thiếu.** Trình duyệt hiện đại **KHÔNG còn đọc trường `CN`** để xác định domain — chúng **chỉ đọc SAN**. Cert có `CN=api.company.vn` mà **SAN không chứa** tên đó ⇒ trình duyệt vẫn báo **không hợp lệ**, dù nhìn `-subject` thấy đúng tên.
+
+⇒ Khi gặp lỗi "certificate name mismatch" mà `-subject` trông đúng, **hãy kiểm tra SAN**.
+
+**Kiểm tra khớp giữa cert và private key — trước khi cài lên server:**
+
+```bash
+openssl x509 -noout -modulus -in cert.pem | openssl md5
+openssl rsa  -noout -modulus -in key.pem  | openssl md5
+#                    └─ modulus là phần "chung" của cặp khoá
+#  => HAI kết quả md5 phải GIỐNG HỆT nhau. Khác nhau = cert và key KHÔNG PHẢI một cặp
+```
+
+⇒ Đây là nguyên nhân của lỗi `SSL_CTX_use_PrivateKey: key values mismatch` khi nginx từ chối khởi động.
+
+**Kiểm tra chuỗi cert đầy đủ — lỗi rất hay gặp:**
+
+```bash
+echo | openssl s_client -connect api.company.vn:443 -servername api.company.vn -showcerts 2>/dev/null \
+  | grep -E "^(subject|issuer|-----BEGIN)"
+```
+
+⚠️ **Lỗi "chuỗi cert thiếu mắt xích"**: server chỉ gửi cert của mình mà **quên cert trung gian**. Hiện tượng đặc trưng: **trình duyệt vào bình thường** (vì trình duyệt tự tải bổ sung được) nhưng **`curl` và ứng dụng thì báo lỗi** — vì chúng không tự tải.
+
+```bash
+openssl verify -CAfile ca-chain.crt cert.pem
+# "cert.pem: OK" = chuỗi đầy đủ và hợp lệ
+```
+
+⇒ Cách sửa: nối cert của bạn với các cert trung gian vào **một file** (đúng thứ tự: cert lá trước, trung gian sau) rồi trỏ nginx vào file đó.
+
+**Vài lệnh kiểm tra khác:**
+
+```bash
+# Cert trong Kubernetes Secret (dạng TLS)
+kubectl get secret my-tls -o jsonpath='{.data.tls\.crt}' | base64 -d | openssl x509 -noout -dates
+#                                              └─ ⚠️ dấu chấm trong tên key phải escape: tls\.crt
+
+# Quét nhanh nhiều host xem cái nào sắp hết hạn
+for h in api.company.vn web.company.vn; do
+  printf "%-25s " "$h"
+  echo | openssl s_client -connect "$h:443" -servername "$h" 2>/dev/null \
+    | openssl x509 -noout -enddate
+done
+#   └─ printf canh lề cho dễ đọc (%-25s = chuỗi căn trái, rộng 25 ký tự)
+```
+
+⚠️ `nmap --script ssl-cert -p 443 <host>` cũng xem được cert, nhưng nmap là **công cụ quét mạng** — trong mạng doanh nghiệp có thể bị hệ thống giám sát ghi nhận là hành vi dò quét. Với việc chỉ xem cert, `openssl` là lựa chọn kín đáo và chuẩn xác hơn.
+
+</details>
+
 ### DNS
 ```bash
 dig <domain>                           # Tra DNS đầy đủ
@@ -3391,6 +4694,110 @@ host <domain>                          # Tra nhanh
 nslookup <domain>
 whois <domain>                         # Thông tin đăng ký domain
 ```
+
+<details>
+<summary><b>Bấm xem: giải nghĩa dig/host/nslookup và các loại bản ghi</b></summary>
+
+| Cờ | Làm gì |
+|---|---|
+| `+short` | Chỉ in kết quả gọn (bỏ toàn bộ phần trình bày) |
+| `+trace` | ⭐ Truy vết **từ root server** xuống — thấy tắc ở tầng nào |
+| `+noall +answer` | Chỉ hiện phần ANSWER (gọn hơn mặc định, chi tiết hơn `+short`) |
+| `@<server>` | Hỏi **thẳng** một DNS server chỉ định |
+| `-x` | **Tra ngược**: từ IP ra tên miền |
+| `+time=N` | Chờ tối đa N giây |
+| `+tcp` | Hỏi qua **TCP** thay vì UDP |
+
+**Các loại bản ghi cần biết:**
+
+| Loại | Trả về | Dùng để |
+|---|---|---|
+| `A` | Địa chỉ **IPv4** | Phổ biến nhất |
+| `AAAA` | Địa chỉ **IPv6** | |
+| `CNAME` | **Bí danh** trỏ tới tên khác | ⚠️ Không đặt được ở tên miền gốc (apex) |
+| `MX` | Máy chủ **thư** | Debug email |
+| `TXT` | Văn bản tự do | SPF, DKIM, xác minh sở hữu domain |
+| `NS` | **Name server** quản lý miền | Kiểm tra uỷ quyền DNS |
+| `SRV` | Dịch vụ + port | K8s dùng cho headless service |
+| `PTR` | Tên miền từ IP (tra ngược) | Kiểm tra danh tiếng mail server |
+
+```bash
+dig api.company.vn A +short          # chỉ IPv4
+dig company.vn MX +short             # máy chủ thư
+dig company.vn TXT +short            # xem bản ghi SPF/xác minh
+dig -x 8.8.8.8 +short                # tra NGƯỢC: IP -> tên miền
+```
+
+⭐ **`+trace` — công cụ mạnh nhất khi "domain mới trỏ mà chưa vào được":**
+
+```bash
+dig api.company.vn +trace
+#                   └─ đi tuần tự: root (.) -> .vn -> company.vn -> api.company.vn
+#                      thấy DỪNG ở tầng nào = biết tầng đó cấu hình sai/chưa uỷ quyền
+```
+
+⇒ Trả lời được câu hỏi mà `+short` không trả lời được: *"không ra kết quả là do domain chưa cấu hình, hay do DNS tôi đang dùng chưa cập nhật?"*
+
+⭐ **Mẹo khoanh vùng nhanh — so sánh hai nguồn:**
+
+```bash
+dig api.company.vn +short              # dùng DNS mặc định của máy
+dig @8.8.8.8 api.company.vn +short     # hỏi DNS công cộng
+dig @$(awk '/^nameserver/{print $2; exit}' /etc/resolv.conf) api.company.vn +short
+#     └─ lấy nameserver đầu tiên trong resolv.conf để hỏi trực tiếp
+```
+
+| Kết quả | Kết luận |
+|---|---|
+| Cả hai **giống nhau** | DNS đã lan truyền đầy đủ ⇒ vấn đề **không nằm ở DNS** |
+| `8.8.8.8` ra, DNS nội bộ **không** | ⇒ **DNS nội bộ** chưa cập nhật / cấu hình sai |
+| `8.8.8.8` **không** ra, nội bộ ra | ⇒ Đây là **bản ghi nội bộ**, đúng như thiết kế |
+| **Cả hai đều không** | ⇒ Bản ghi **chưa được tạo** ở nhà cung cấp DNS |
+
+**Kiểm tra TTL — biết phải chờ bao lâu sau khi đổi bản ghi:**
+
+```bash
+dig api.company.vn +noall +answer
+# api.company.vn.  300  IN  A  10.0.0.5
+#                  └─ TTL = 300 giây: các DNS trung gian sẽ CACHE kết quả này 5 phút
+```
+
+⇒ Đổi bản ghi DNS xong mà chưa thấy hiệu lực ⇒ **chờ hết TTL cũ**, không phải cấu hình sai. ⭐ Mẹo: **hạ TTL xuống 60 giây TRƯỚC khi** chuyển đổi hệ thống, xong xuôi mới nâng lại.
+
+⚠️ **`nslookup` — công cụ cũ, có thể gây hiểu nhầm:**
+
+| | `dig` | `nslookup` |
+|---|---|---|
+| Hiển thị | ⭐ **Đúng nguyên văn** phản hồi DNS | Đã diễn giải lại, ẩn bớt chi tiết |
+| Đọc `/etc/hosts` | ❌ Không | ❌ Không |
+| Có sẵn | Gói `dnsutils`/`bind-tools` | Cùng gói |
+
+🛑 **Cả `dig` và `nslookup` đều KHÔNG đọc `/etc/hosts`.** Nên chúng có thể ra kết quả **khác với thứ ứng dụng thật sự dùng**. Muốn biết ứng dụng nhìn thấy gì, dùng:
+
+```bash
+getent hosts api.company.vn
+#  └─ đi qua ĐÚNG chuỗi phân giải của hệ điều hành: /etc/hosts -> nsswitch -> DNS
+```
+
+⇒ Đây là mảnh ghép then chốt: `dig` ra IP đúng mà app vẫn kết nối sai ⇒ gần như chắc chắn có dòng đè trong `/etc/hosts`.
+
+**`whois` — thông tin đăng ký tên miền:**
+
+```bash
+whois company.vn | grep -iE "expir|status|name server"
+#                            └─ ngày hết hạn ĐĂNG KÝ · trạng thái · name server
+```
+
+⚠️ **Phân biệt hai loại "hết hạn"** — hoàn toàn khác nhau:
+
+| | Hết hạn **domain** (`whois`) | Hết hạn **cert TLS** (`openssl`) |
+|---|---|---|
+| Hậu quả | Mất tên miền, **toàn bộ dịch vụ chết** | Trình duyệt cảnh báo, HTTPS lỗi |
+| Gia hạn ở | Nhà đăng ký tên miền | Nơi cấp cert (Let's Encrypt, CA nội bộ) |
+
+⚠️ `whois` cần **kết nối ra Internet** ⇒ trên VDI air-gapped thường không chạy được. Thông tin này phải tra từ cổng quản trị tên miền của công ty.
+
+</details>
 
 ---
 
