@@ -7681,6 +7681,74 @@ podman play kube pod.yaml               # Chạy từ manifest k8s
 alias docker=podman                     # Dùng podman như docker
 ```
 
+<details>
+<summary><b>Bấm xem: giải nghĩa Podman — vì sao "không daemon" là điểm khác biệt cốt lõi</b></summary>
+
+⭐ **Tiền đề — sự khác biệt kiến trúc căn bản với Docker:**
+
+| | Docker | Podman |
+|---|---|---|
+| Kiến trúc | Có **daemon** (`dockerd`) chạy nền, mọi lệnh `docker` gửi yêu cầu tới daemon đó | ⭐ **Không có daemon** — mỗi lệnh `podman` tự nó **là** tiến trình quản lý container luôn |
+| Chạy container với quyền gì mặc định | daemon chạy bằng **root** ⇒ container cũng dễ có quyền root | ⭐ **Rootless theo mặc định** — container chạy bằng đúng quyền user gọi nó |
+| Daemon chết thì sao | 🛑 **Mọi** container bị ảnh hưởng (daemon là điểm chết chung) | Không có điểm chết chung — mỗi container độc lập |
+
+⇒ **Hệ quả bảo mật quan trọng**: Docker daemon chạy bằng root, và **ai thuộc nhóm `docker`** (đã nói ở mục User & Nhóm phía trên) **tương đương có quyền root** — vì họ ra lệnh được cho một tiến trình root. Podman **loại bỏ** đúng lỗ hổng này: không có daemon trung gian chạy root, container của user thường **thực sự** chỉ có quyền của user đó.
+
+**Cú pháp — cố ý giống Docker gần như 100%, để chuyển đổi không phải học lại:**
+
+```bash
+podman ps / podman ps -a           # y hệt docker
+podman run -d --name app <image>   # y hệt docker
+podman images / podman pull <image>
+podman logs -f <container>
+podman exec -it <container> bash
+podman build -t app:1.0 .
+```
+
+⭐ **`alias docker=podman` — dùng được vì tương thích cú pháp gần như tuyệt đối:**
+
+```bash
+alias docker=podman
+#     └─ ⭐ vì cú pháp GẦN NHƯ GIỐNG HỆT, phần lớn script/Dockerfile CÓ SẴN chạy được
+#        MÀ KHÔNG CẦN SỬA GÌ — đây là mục tiêu thiết kế của Podman
+```
+
+⚠️ **Không phải giống 100%** — vài khác biệt tinh vi có thể gây lỗi khi chuyển đổi vội vàng:
+- `podman-compose` là **công cụ riêng** (không phải `docker compose`), cú pháp tương thích phần lớn nhưng **không đảm bảo mọi tính năng đều y hệt**.
+- Mạng mặc định (`podman network`) có hành vi DNS nội bộ hơi khác đôi chỗ so với `docker network`.
+- Volume mount rootless có thể gặp vấn đề **quyền UID/GID** khác Docker (do container không chạy bằng root thật).
+
+**Pod — khái niệm mượn TỪ Kubernetes, không có ở Docker:**
+
+```bash
+podman pod create --name mypod
+#           └─ ⭐ NHIỀU container CÙNG chia sẻ network namespace,
+#              GIỐNG HỆT khái niệm "Pod" trong Kubernetes (đã học ở mục kubectl phía trên)
+podman run -d --pod mypod nginx      # thêm container VÀO pod đã tạo
+podman run -d --pod mypod busybox
+#  => hai container này gọi nhau qua "localhost", CHIA SẺ CÙNG một địa chỉ IP -- y hệt cách Pod K8s hoạt động
+```
+
+⇒ Đây là điểm hay: **học Podman pod = ôn lại chính xác khái niệm Pod của K8s** — cùng một mô hình network namespace dùng chung.
+
+⭐ **`podman generate kube` / `podman play kube` — cầu nối giữa Docker/Podman thường ngày và K8s thật:**
+
+```bash
+podman generate kube mypod > pod.yaml
+#                └─ ⭐ XUẤT container/pod ĐANG CHẠY ra thành MANIFEST KUBERNETES chuẩn
+#                   (dùng thử nhanh trên máy dev, rồi có sẵn YAML để triển khai lên K8s thật)
+
+podman play kube pod.yaml
+#            └─ NGƯỢC LẠI: đọc một manifest K8s, CHẠY THỬ ngay bằng Podman
+#               (không cần dựng cả cluster K8s chỉ để test một YAML đơn giản)
+```
+
+⇒ Rất hữu ích khi phát triển local: viết thử YAML kiểu K8s, `play kube` để chạy thử nhanh trên máy cá nhân **trước khi** đưa lên cluster thật — rút ngắn vòng lặp thử-sửa.
+
+⚠️ **Rootless Podman có giới hạn** không thể bỏ qua: không bind được **port dưới 1024** (80, 443) trừ khi cấu hình thêm (`sysctl net.ipv4.ip_unprivileged_port_start`), và một số tính năng cần capability đặc biệt của kernel sẽ **không hoạt động** như khi chạy bằng root — đây là đánh đổi cho việc **an toàn hơn theo mặc định**.
+
+</details>
+
 ### crictl (debug container trực tiếp trên node k8s - không qua kubectl)
 ```bash
 crictl ps                              # Liệt kê container đang chạy
@@ -7694,6 +7762,67 @@ crictl stats                           # CPU/RAM container
 # Rất hữu ích khi node lỗi mà kubectl/API server không truy cập được
 ```
 
+<details>
+<summary><b>Bấm xem: giải nghĩa crictl — công cụ dùng khi kubectl KHÔNG CÒN hoạt động</b></summary>
+
+⭐ **Tiền đề — vì sao cần một công cụ RIÊNG ngoài `kubectl`?**
+
+`kubectl` nói chuyện với **API server** — một thành phần **ở tầng cao**, phụ thuộc etcd, phụ thuộc mạng cluster hoạt động bình thường. Khi API server **sập**, hoặc node **mất kết nối** với control plane, `kubectl` **hoàn toàn không dùng được** — nhưng container **vẫn đang chạy thật sự trên node đó**, do **container runtime** (containerd/CRI-O) quản lý ở tầng thấp hơn nhiều, độc lập với API server.
+
+```
+kubectl  ──gọi──>  API server  ──gọi──>  kubelet (trên từng node)  ──gọi──>  container runtime
+                        🛑 tầng NÀY sập                                      │
+                                                                              └─ crictl NÓI CHUYỆN
+                                                                                 TRỰC TIẾP VỚI ĐÂY,
+                                                                                 BỎ QUA TOÀN BỘ tầng trên
+```
+
+⇒ **`crictl` chính là công cụ dùng khi mọi thứ ở tầng trên đã sập** — SSH thẳng vào node, dùng `crictl` để biết container **thật sự** đang chạy gì, bất kể API server sống hay chết.
+
+| Lệnh | Tương đương `kubectl`/`docker` |
+|---|---|
+| `crictl ps` | `docker ps` — container đang chạy TRÊN NODE NÀY |
+| `crictl ps -a` | Cả container đã dừng |
+| `crictl pods` | ⭐ Liệt kê **sandbox** (Pod) — khái niệm crictl RIÊNG, xem giải thích dưới |
+| `crictl images` | `docker images` |
+| `crictl logs <id>` | `kubectl logs`, nhưng chạy **thẳng trên node**, không qua API server |
+| `crictl exec -it <id> sh` | `kubectl exec` phiên bản node-local |
+| `crictl inspect <id>` | `docker inspect` |
+| `crictl stats` | `docker stats` |
+
+⭐ **"sandbox" (`crictl pods`) — vì sao có khái niệm này mà Docker không có:**
+
+Trong K8s, mỗi **Pod** cần một **network namespace dùng chung** cho mọi container bên trong nó (đây chính là lý do container cùng Pod gọi nhau qua `localhost` — đã nói ở mục Podman phía trên). Runtime tạo ra một **container ẩn đặc biệt** (thường dựa trên image `pause`) để **giữ chỗ** cho network namespace đó — gọi là **sandbox**. `crictl pods` liệt kê các sandbox này, khớp trực tiếp với khái niệm "Pod" mà `kubectl get pods` cho thấy ở tầng cao hơn.
+
+**Kịch bản thực tế — node có container `CrashLoopBackOff` mà API server không phản hồi:**
+
+```bash
+# SSH thẳng vào node bị nghi có vấn đề
+sudo crictl ps -a | grep -i myapp
+#                    └─ tìm container theo TÊN, kể cả đã dừng (-a)
+
+sudo crictl logs <container-id> --tail 100
+#                                └─ ⭐ giống hệt tinh thần "kubectl logs --tail",
+#                                   nhưng hoạt động NGAY CẢ KHI kube-apiserver đang sập
+
+sudo crictl inspect <container-id> | jq '.status.reason, .status.exitCode'
+#                                        └─ lý do dừng + mã thoát -- CHẨN ĐOÁN NGAY TẠI NODE
+```
+
+⚠️ **`crictl` gần như luôn cần `sudo`** — nó nói chuyện trực tiếp với socket của container runtime (`/run/containerd/containerd.sock` hoặc tương tự), vốn chỉ root/nhóm đặc quyền mới truy cập được.
+
+⚠️ **`crictl` chỉ thấy container TRÊN ĐÚNG NODE nó đang chạy** — không có khái niệm "toàn cluster" như `kubectl get pods -A`. Muốn điều tra một Pod, phải **biết trước Pod đó đang chạy ở node nào** (từ `kubectl get pod -o wide` **trước khi** API server sập, hoặc từ thông tin đã ghi chú sẵn) rồi mới SSH đúng node đó.
+
+**Cấu hình runtime endpoint — cần khi crictl không tự tìm thấy socket:**
+
+```bash
+crictl --runtime-endpoint unix:///run/containerd/containerd.sock ps
+#      └─ chỉ định RÕ socket của containerd, cần khi có NHIỀU runtime cài trên cùng máy
+#         gây nhầm lẫn, hoặc file cấu hình mặc định /etc/crictl.yaml chưa được thiết lập đúng
+```
+
+</details>
+
 ### nerdctl (CLI giống Docker cho containerd)
 ```bash
 nerdctl ps                             # Liệt kê container
@@ -7702,6 +7831,59 @@ nerdctl build -t app .                 # Build
 nerdctl compose up -d                  # Hỗ trợ cả compose
 nerdctl -n k8s.io ps                   # Xem container của k8s (namespace k8s.io)
 ```
+
+<details>
+<summary><b>Bấm xem: giải nghĩa nerdctl — và vì sao namespace k8s.io là chìa khoá</b></summary>
+
+⭐ **Tiền đề — `nerdctl` khác `crictl` ở MỤC ĐÍCH, dù cùng chạy trên containerd:**
+
+| | `crictl` | `nerdctl` |
+|---|---|---|
+| Sinh ra để | **Chẩn đoán/debug** (theo chuẩn CRI mà Kubernetes định nghĩa) | ⭐ **Thay thế trải nghiệm Docker CLI hằng ngày**, đầy đủ tính năng hơn |
+| Cú pháp | Khác Docker khá nhiều | ⭐ **Gần như giống hệt** `docker` — chuyển đổi gần như không cần học lại |
+| Hỗ trợ `compose` | ❌ Không | ✅ **Có** (`nerdctl compose`) |
+
+⇒ Nếu `crictl` là "công cụ điều tra khi có sự cố", thì `nerdctl` là **"docker CLI thay thế"** cho containerd trong công việc **hằng ngày** — build, run, compose như bình thường.
+
+```bash
+nerdctl ps                    # y hệt docker ps
+nerdctl run -d <image>        # y hệt docker run -d
+nerdctl build -t app .        # y hệt docker build
+nerdctl compose up -d         # ⭐ HỖ TRỢ compose — điều crictl KHÔNG có
+```
+
+⭐⭐ **`nerdctl -n k8s.io ps` — dòng lệnh QUAN TRỌNG NHẤT của mục này, cần hiểu SÂU vì sao có nó:**
+
+**Tiền đề bắt buộc**: containerd tổ chức mọi container theo **namespace nội bộ của chính containerd** (khái niệm này **hoàn toàn khác** — dễ nhầm — với "namespace" của Kubernetes hay của Linux). Container do bạn tự chạy tay (`nerdctl run` trần) nằm ở namespace containerd tên **`default`**. Nhưng **container do Kubernetes/kubelet tạo ra** (Pod thật) lại nằm ở namespace containerd tên **`k8s.io`** — một namespace RIÊNG BIỆT, tách khỏi `default`.
+
+```bash
+nerdctl ps                # 🛑 CHỈ thấy container namespace "default" -> Pod K8s SẼ KHÔNG hiện ra ở đây!
+nerdctl -n k8s.io ps       # ⭐ chỉ định RÕ namespace "k8s.io" -> MỚI thấy được container CỦA KUBERNETES
+```
+
+🛑 **Đây là bẫy gây bối rối lớn nhất khi mới học `nerdctl`**: SSH vào node K8s, gõ `nerdctl ps` thấy **trống trơn** hoặc chỉ vài container lạ, trong khi `kubectl get pods -o wide` rõ ràng báo node này đang chạy **10 pod** — không phải node hỏng, mà là container thật nằm ở namespace `k8s.io`, còn `nerdctl ps` (không cờ `-n`) mặc định chỉ nhìn vào `default`.
+
+**Ba lệnh "namespace" khác nhau — dễ gộp lẫn, phải tách rõ để không hoang mang:**
+
+| Loại "namespace" | Thuộc về | Ví dụ |
+|---|---|---|
+| Kubernetes namespace | Chia nhóm resource trong K8s | `default`, `ai-hub`, `kube-system` |
+| Linux namespace (kernel) | Cô lập tiến trình (network, PID, mount...) | Cơ chế bên dưới container nói chung |
+| **containerd namespace** | ⭐ Cách **containerd** tự phân vùng container do nó quản lý | `default` (do bạn tự tạo), `k8s.io` (do kubelet tạo) |
+
+⇒ Ba khái niệm **cùng dùng chữ "namespace" nhưng hoàn toàn độc lập** — thấy chữ "namespace" trong lệnh `nerdctl -n k8s.io` thì **đừng liên tưởng** tới namespace của `kubectl get pods -n ai-hub`, chúng không liên quan gì tới nhau.
+
+**Kịch bản thực tế — điều tra Pod K8s bằng nerdctl thay vì crictl:**
+
+```bash
+nerdctl -n k8s.io ps | grep myapp          # tìm container CỦA K8S theo tên
+nerdctl -n k8s.io logs <container-id>      # xem log TRỰC TIẾP, không qua API server
+nerdctl -n k8s.io inspect <container-id>   # chi tiết cấu hình runtime
+```
+
+⚠️ Về **mục đích chẩn đoán container của K8s khi API server sập**, `crictl` (chuẩn CRI chính thức) và `nerdctl -n k8s.io` (dành riêng cho containerd) làm được **việc tương tự nhau** — `crictl` có ưu điểm là **chuẩn chung** hoạt động với bất kỳ CRI runtime nào (containerd, CRI-O), còn `nerdctl` chỉ hoạt động khi runtime **chính là containerd**.
+
+</details>
 
 ---
 
@@ -7722,6 +7904,86 @@ istioctl dashboard grafana             # Mở Grafana
 kubectl get virtualservice,destinationrule,gateway -A   # Xem resource Istio
 ```
 
+<details>
+<summary><b>Bấm xem: giải nghĩa Istio — sidecar injection và istioctl analyze</b></summary>
+
+⭐ **Tiền đề — Service Mesh giải quyết bài toán gì, và "sidecar" là gì?**
+
+Trong một cluster có hàng chục service gọi lẫn nhau, mỗi service muốn có **retry, timeout, mTLS, quan sát traffic** thì phải **tự viết logic đó trong code** — trùng lặp công sức, và mỗi ngôn ngữ lập trình lại làm khác nhau. **Service Mesh** giải quyết bằng cách: chèn một **proxy nhỏ** (Envoy) chạy **cạnh mỗi Pod** (gọi là **sidecar** — "xe bên hông xe máy") để **chặn và điều phối MỌI traffic ra/vào** của Pod đó — logic retry/mTLS/observability nằm ở proxy, **không cần sửa code ứng dụng**.
+
+```
+Không có mesh:  App A  ────gọi trực tiếp────>  App B
+Có mesh:        App A -> [Envoy sidecar A] ──> [Envoy sidecar B] -> App B
+                          └─ MỌI request đi QUA đây, App KHÔNG BIẾT có sidecar
+```
+
+| Lệnh | Làm gì |
+|---|---|
+| `istioctl version` | Version control plane + data plane (Envoy) — kiểm tra khớp nhau chưa |
+| `istioctl install` | Cài Istio vào cluster |
+| `istioctl analyze` | ⭐ **Phân tích cấu hình**, tìm lỗi mà `kubectl apply` KHÔNG báo |
+| `istioctl proxy-status` | Đồng bộ config giữa control plane và **từng sidecar** |
+| `istioctl proxy-config routes <pod>` | Route THẬT mà sidecar của pod đó đang dùng |
+
+⭐ **Bật sidecar injection — bước BẮT BUỘC trước, nếu không mesh không hoạt động dù đã cài Istio:**
+
+```bash
+kubectl label namespace ai-hub istio-injection=enabled
+#                                └─ ⭐ đánh dấu NAMESPACE này để Istio TỰ ĐỘNG chèn sidecar
+#                                   vào MỌI Pod MỚI tạo ra trong namespace đó
+```
+
+🛑 **`istio-injection=enabled` CHỈ áp dụng cho Pod TẠO MỚI SAU KHI label được gắn.** Pod **đang chạy từ trước** đó **KHÔNG tự động** có sidecar — phải **tạo lại** (thường bằng `kubectl rollout restart deploy`) để injection có hiệu lực. Đây là nguyên nhân của "tôi đã label namespace mà sao Pod vẫn chỉ có 1 container" — cần restart, không phải chỉ label là xong.
+
+```bash
+kubectl get pod mypod -o jsonpath='{.spec.containers[*].name}'
+#  Không có mesh:  myapp
+#  ⭐ Có mesh:      myapp istio-proxy
+#                          └─ ⭐ đây chính là SIDECAR — mỗi Pod trong mesh có ÍT NHẤT 2 container
+```
+
+⭐⭐ **`istioctl analyze` — CHẠY LỆNH NÀY TRƯỚC KHI DEBUG BẰNG TAY, vì nó bắt được lỗi `kubectl apply` bỏ qua:**
+
+`kubectl apply` chỉ kiểm tra **cú pháp YAML đúng chuẩn K8s** — nó **KHÔNG BIẾT** ý nghĩa nghiệp vụ của các CRD Istio (VirtualService trỏ tới DestinationRule không tồn tại, Gateway không khớp Selector nào...). Config kiểu này **apply thành công, không báo lỗi gì**, nhưng traffic **âm thầm đi sai hướng hoặc rơi vào khoảng không**.
+
+```bash
+istioctl analyze -n ai-hub
+#                 └─ ⭐ quét TOÀN BỘ cấu hình Istio TRONG namespace này,
+#                    tìm những lỗi LOGIC mà kubectl apply đã bỏ qua hoàn toàn
+```
+
+⇒ **Quy tắc thực hành**: mọi lần sửa VirtualService/DestinationRule/Gateway, chạy `istioctl analyze` **ngay sau** `kubectl apply` — đừng đợi tới lúc traffic thật báo lỗi 503 mới đi tìm nguyên nhân.
+
+⭐ **`istioctl proxy-status` — kiểm tra ĐỒNG BỘ giữa "ý định" (control plane) và "thực thi" (từng sidecar):**
+
+```bash
+istioctl proxy-status
+# NAME                 CDS        LDS        EDS        RDS        SYNCED
+# myapp-7d9f.ai-hub    SYNCED     SYNCED     SYNCED     SYNCED     ✅
+# api-gw-x2k.ai-hub    STALE      SYNCED     SYNCED     SYNCED     ⚠️
+#                       └─ ⭐ "STALE" = sidecar này ĐANG DÙNG CẤU HÌNH CŨ,
+#                          chưa nhận được bản cập nhật mới nhất từ control plane
+```
+
+🛑 **`STALE` là nguyên nhân của "tôi đã sửa VirtualService rồi mà traffic vẫn đi theo rule cũ".** Sidecar chưa đồng bộ được config mới — thường do sidecar quá tải, hoặc mất kết nối tạm thời tới `istiod` (control plane). Kiểm tra log của chính sidecar đó khi gặp `STALE` kéo dài.
+
+**Đào sâu route thật của MỘT pod cụ thể — khi cần biết CHÍNH XÁC nó đang định tuyến ra sao:**
+
+```bash
+istioctl proxy-config routes myapp-7d9f -n ai-hub
+#                      │      └─ tên pod
+#                      └─ routes: bảng ĐỊNH TUYẾN thật -- giống hệt tinh thần "kubectl describe"
+#                         nhưng đào SÂU vào cấu hình BÊN TRONG sidecar, không phải object K8s
+
+istioctl proxy-config cluster myapp-7d9f -n ai-hub
+#                      └─ cluster (trong ngữ cảnh Envoy) = danh sách UPSTREAM mà sidecar này BIẾT tới,
+#                         KHÁC hoàn toàn khái niệm "Kubernetes cluster" — dễ nhầm vì trùng chữ
+```
+
+⚠️ **Chữ "cluster" ở đây KHÔNG PHẢI Kubernetes cluster** — trong Envoy, "cluster" nghĩa là **một nhóm endpoint đích** (upstream) mà proxy có thể gửi traffic tới. Đọc lệnh `proxy-config cluster` mà liên tưởng tới "cụm Kubernetes" sẽ hiểu sai hoàn toàn kết quả trả về.
+
+</details>
+
 ### Linkerd
 ```bash
 linkerd check                          # Kiểm tra sức khỏe cài đặt (chạy trước tiên)
@@ -7732,6 +7994,72 @@ linkerd viz stat deploy -n <ns>        # Thống kê success rate, RPS, latency
 linkerd viz tap deploy/<name>          # Xem request realtime (live tap)
 linkerd viz top deploy/<name>          # Route nào nhiều traffic nhất
 ```
+
+<details>
+<summary><b>Bấm xem: giải nghĩa Linkerd — check trước, viz để quan sát</b></summary>
+
+⭐ **Tiền đề — Linkerd cùng nhóm Service Mesh với Istio (đã giải thích ở mục trên), nhưng khác triết lý:** Linkerd chủ trương **đơn giản và nhẹ hơn** — ít tính năng cấu hình phức tạp hơn Istio, đổi lại **dễ vận hành hơn** và **sidecar tốn ít tài nguyên hơn**. Cùng khái niệm sidecar/mTLS/observability như đã học ở mục Istio, chỉ khác công cụ và triết lý thiết kế.
+
+| Lệnh | Làm gì |
+|---|---|
+| `linkerd check` | ⭐ Kiểm tra sức khoẻ **TRƯỚC KHI** làm bất cứ điều gì khác |
+| `linkerd install \| kubectl apply -f -` | Cài đặt (sinh YAML rồi apply) |
+| `linkerd viz install` | Cài **thêm** bộ dashboard quan sát (tách riêng khỏi lõi) |
+| `linkerd viz stat` | Thống kê success rate, RPS, latency |
+| `linkerd viz tap` | ⭐ Xem **từng request LIVE**, thời gian thực |
+| `linkerd viz top` | Route nào nhiều traffic nhất |
+
+⭐⭐ **`linkerd check` — vì sao PHẢI chạy đầu tiên, không phải tuỳ chọn:**
+
+```bash
+linkerd check
+```
+
+Lệnh này kiểm tra **một chuỗi điều kiện tiên quyết** theo thứ tự: version CLI có khớp control plane không → cert TLS nội bộ còn hạn không → control plane có Healthy không → mọi thứ cấu hình đúng không. **Nếu bất kỳ bước nào trong đây fail, MỌI lệnh `linkerd viz` phía sau đều sẽ cho kết quả SAI LỆCH hoặc LỖI KHÓ HIỂU** — vì chúng dựa vào tiền đề "control plane đang khoẻ mạnh" mà `check` xác nhận.
+
+⇒ **Quy tắc thực hành**: gặp bất kỳ hành vi lạ nào của Linkerd, **luôn `linkerd check` trước tiên** — đừng vội đi debug ứng dụng khi chính bản thân mesh đang có vấn đề nền tảng.
+
+⚠️ Một lỗi hay gặp mà `check` bắt được sớm: **cert mTLS nội bộ của Linkerd có hạn sử dụng** (mặc định thường ~1 năm cho cert gốc). Cert hết hạn ⇒ **toàn bộ giao tiếp giữa các sidecar bị từ chối** ⇒ mesh "sập" đồng loạt trông như sự cố lớn, nhưng nguyên nhân gốc chỉ là **quên gia hạn chứng chỉ** — `linkerd check` cảnh báo trước khi việc này thành thảm hoạ.
+
+**`viz` — bộ công cụ quan sát TÁCH RIÊNG khỏi phần lõi mesh:**
+
+```bash
+linkerd viz install | kubectl apply -f -
+#      └─ ⭐ "viz" = visualization, một PHẦN MỞ RỘNG riêng biệt
+#         (lõi mesh có thể chạy mà KHÔNG CẦN viz — viz chỉ để QUAN SÁT, không phải bắt buộc)
+linkerd viz dashboard
+#             └─ mở giao diện web quan sát traffic realtime trên trình duyệt
+```
+
+⭐⭐ **`linkerd viz tap` — công cụ mạnh nhất khi cần biết "request VỪA XẢY RA đi đâu, kết quả gì":**
+
+```bash
+linkerd viz tap deploy/myapp
+#               └─ ⭐ xem TỪNG request LIVE, ngay lúc nó đang xảy ra — không phải số liệu tổng hợp
+```
+
+Kết quả in ra **từng dòng cho mỗi request**: method, đường dẫn, mã trạng thái trả về, độ trễ — **thời gian thực**, giống hệt tinh thần `tcpdump` (đã học ở mục Network debug) nhưng ở **tầng ứng dụng (Layer 7)** thay vì tầng gói tin thô.
+
+⇒ Khi nghi ngờ *"service A có thực sự gọi được tới service B không, và trả về gì"* — thay vì đoán qua log ứng dụng (có thể log không đủ chi tiết), `tap` cho thấy **chính xác request đang chảy qua mesh**, độc lập với việc code ứng dụng có log tốt hay không.
+
+⚠️ **`tap` tạo tải phụ đáng kể** khi bật trên deployment có traffic rất cao — nó chặn và nhân bản **mọi** request để hiển thị. Chỉ bật **trong thời gian ngắn** khi thực sự cần điều tra, giống nguyên tắc đã nói với `strace`/`tcpdump`.
+
+**`viz stat` — con số tổng hợp, đối lập với `tap` (từng request riêng lẻ):**
+
+```bash
+linkerd viz stat deploy -n ai-hub
+#                       └─ ⭐ success rate (%), RPS (request/giây), p50/p95/p99 latency
+#                          THEO TỪNG DEPLOYMENT trong namespace — bức tranh TỔNG QUAN
+```
+
+⇒ Dùng `stat` để có **cái nhìn tổng thể** ("service nào đang có success rate thấp bất thường"), rồi dùng `tap` để **đào sâu vào TỪNG request** của đúng service nghi vấn đó — hai lệnh bổ trợ nhau theo hai mức độ chi tiết khác nhau.
+
+```bash
+linkerd viz top deploy/myapp
+#               └─ giống "top" của Linux nhưng cho ROUTE: route nào NHIỀU TRAFFIC NHẤT, cập nhật liên tục
+```
+
+</details>
 
 ---
 
@@ -7756,6 +8084,78 @@ kubens <namespace>                     # Chuyển namespace mặc định
 kubectl krew install <plugin>          # Cài plugin kubectl (krew = package manager)
 kubectl krew list                      # Liệt kê plugin đã cài
 ```
+
+<details>
+<summary><b>Bấm xem: giải nghĩa k9s, stern, kubectx/kubens, krew</b></summary>
+
+**Tiền đề — vì sao cần công cụ ngoài `kubectl` thuần?** `kubectl get/describe/logs` là các lệnh **rời rạc, chạy một lần rồi thoát** — muốn theo dõi liên tục phải tự `watch` hoặc gõ lại nhiều lần. Nhóm công cụ này **bọc quanh `kubectl`** để có trải nghiệm **tương tác, realtime** hơn.
+
+⭐ **`k9s` — TUI (Terminal UI) điều khiển cluster bằng bàn phím, không cần chuột:**
+
+```bash
+k9s                    # mở giao diện, mặc định context/namespace hiện tại
+k9s -n ai-hub           # mở THẲNG vào namespace này, khỏi phải điều hướng
+```
+
+**Điều khiển cơ bản bên trong k9s** (không phải cờ dòng lệnh — đây là phím tắt TRONG giao diện):
+
+| Phím | Làm gì |
+|---|---|
+| `:pods`, `:svc`, `:deploy` | Gõ dấu `:` rồi tên resource để **chuyển view** — thay cho gõ lại `kubectl get <resource>` |
+| `/` | Lọc (filter) danh sách đang xem theo tên |
+| `d` | **d**escribe — xem chi tiết + Events ngay tại chỗ, không cần gõ lệnh riêng |
+| `l` | **l**ogs — xem log ngay, không cần rời màn hình |
+| `s` | **s**hell — vào thẳng container, tương đương `kubectl exec -it` |
+| `Ctrl+d` | Xoá resource đang chọn (⚠️ **có hỏi xác nhận**, nhưng vẫn nên cẩn trọng) |
+| `Esc` | Quay lại view trước |
+
+⭐ **Giá trị cốt lõi của k9s**: các thao tác `get` → `describe` → `logs` → `exec` mà bình thường phải gõ **4 lệnh `kubectl` riêng biệt với đúng tên pod mỗi lần**, trong k9s chỉ là **4 phím bấm** trên đúng dòng đang chọn — tốc độ điều tra sự cố nhanh hơn hẳn khi cần lướt qua nhiều pod liên tiếp.
+
+⚠️ k9s là công cụ **tương tác** — không hợp dùng trong **script tự động hoá**. Với CI/CD hay script, vẫn phải dùng `kubectl` thuần (có thể parse output, có exit code rõ ràng).
+
+⭐⭐ **`stern` — giải quyết đúng bài toán "xem log của NHIỀU pod cùng lúc, có màu phân biệt":**
+
+🛑 **Vấn đề của `kubectl logs` thuần**: một Deployment có **5 replica** đang chạy — `kubectl logs <pod>` chỉ xem được **ĐÚNG MỘT pod tại một thời điểm**. Muốn xem log tổng hợp của cả 5, phải mở **5 terminal riêng**, mỗi cái gõ tên pod khác nhau — rất bất tiện khi cần theo dõi một sự cố đang xảy ra trên nhiều replica cùng lúc.
+
+```bash
+stern myapp
+#     └─ ⭐ khớp theo TÊN (regex), tự động bám log của MỌI pod hiện có VÀ pod MỚI SINH RA sau đó
+#        (khác kubectl logs: chỉ bám được đúng 1 pod cụ thể tại thời điểm bạn gõ lệnh)
+
+stern myapp -n ai-hub          # trong 1 namespace
+stern -l app=nginx             # ⭐ theo LABEL selector, không cần biết tên chính xác từng pod
+stern myapp --since 10m        # chỉ log 10 phút gần đây (giống --since của journalctl/docker logs)
+```
+
+⭐ **Vì sao `stern` "tự bám pod mới sinh ra" là tính năng KHÔNG THỂ THAY THẾ bằng `kubectl logs`?** Trong lúc một **rollout** đang diễn ra (pod cũ bị thay pod mới liên tục), `kubectl logs <pod-cũ>` sẽ **dừng đột ngột** khi pod đó bị xoá — bạn phải tự tay lấy tên pod mới rồi chạy lại lệnh. `stern` với bộ lọc theo **tên pattern** hoặc **label** sẽ **tự động chuyển sang bám pod mới** ngay khi nó xuất hiện, không gián đoạn theo dõi.
+
+Output của `stern` **tô màu riêng cho từng pod** ở đầu mỗi dòng — giúp phân biệt log của pod nào trong dòng log gộp chung, điều mà nối nhiều `kubectl logs -f &` chạy nền không làm được gọn gàng bằng.
+
+⭐ **`kubectx` / `kubens` — thao tác nhanh hơn cú pháp `kubectl config` dài dòng đã học ở mục Context & Cluster:**
+
+```bash
+kubectx                # liệt kê MỌI context (tương đương kubectl config get-contexts, nhưng gọn hơn)
+kubectx <context>      # chuyển NGAY (tương đương kubectl config use-context)
+kubens                 # liệt kê namespace TRONG cluster hiện tại
+kubens <namespace>     # đổi namespace mặc định (tương đương lệnh set-context dài đã học trước đó)
+```
+
+⇒ Đây thuần tuý là **bản rút gọn cú pháp** của các lệnh `kubectl config ...` đã giải thích chi tiết ở mục Context & Cluster phía trên — không có khái niệm mới, chỉ gõ nhanh hơn. Nhiều bản `kubectx` còn hỗ trợ **menu chọn bằng phím mũi tên** khi gõ trần không kèm tham số, thay vì phải nhớ chính xác tên context/namespace.
+
+⭐ **`krew` — trình quản lý PLUGIN của kubectl, giống `apt`/`brew` nhưng dành riêng cho hệ sinh thái kubectl:**
+
+```bash
+kubectl krew install neat        # cài plugin "kubectl neat" (đã nhắc ở mục backup manifest phía trên)
+kubectl krew list                # liệt kê plugin ĐÃ CÀI qua krew
+kubectl krew search <keyword>    # tìm plugin trong kho plugin cộng đồng
+kubectl krew upgrade             # nâng cấp TẤT CẢ plugin đã cài lên bản mới nhất
+```
+
+⇒ Sau khi cài bằng `krew`, mọi plugin tự động gọi được qua `kubectl <tên-plugin>` (ví dụ `kubectl neat`) — **liền mạch với `kubectl` gốc**, không cần nhớ thêm một chương trình riêng biệt để gọi.
+
+⚠️ **`krew` cần tải plugin TỪ INTERNET** (kho plugin trên GitHub) — trên **VDI air-gapped**, bước cài đặt này thường **không thực hiện được** trực tiếp; cần tải file binary của plugin về qua máy có mạng rồi copy thủ công vào đúng đường dẫn `krew` quản lý.
+
+</details>
 
 ---
 
