@@ -9423,6 +9423,62 @@ velero backup create full-$(date +%F) --include-cluster-resources=true   # Backu
 velero backup create ns-backup --include-namespaces prod --snapshot-volumes   # Kèm snapshot PV
 ```
 
+<details>
+<summary><b>Bấm xem: giải nghĩa vòng lặp backup toàn cluster và kubectl neat</b></summary>
+
+⭐ Mục này ÁP DỤNG TRỰC TIẾP cảnh báo ĐÃ HỌC KỸ ở mục `kubectl get resource (get/describe)` phía trên rất sớm trong cheatsheet: **`kubectl get all` KHÔNG PHẢI "tất cả"**. Ba lệnh dưới đây CHÍNH LÀ CÁCH SỬA đúng vấn đề đó, đi TỪ ĐƠN GIẢN tới ĐẦY ĐỦ.
+
+```bash
+for res in deploy sts ds svc cm secret ingress pvc hpa; do
+  kubectl get $res -n <ns> -o yaml > backup-<ns>-$res.yaml
+done
+#     └─ ⭐ LIỆT KÊ RÕ TỪNG LOẠI resource thay vì tin vào "get all" -> KHÔNG BỎ SÓT
+#        Secret/ConfigMap/Ingress/PVC (đúng NHỮNG THỨ mà "get all" ĐàBỎ QUA)
+```
+
+⭐⭐ **Vòng lặp BACKUP TOÀN CLUSTER — bóc kỹ vì đây là LỆNH PHỨC TẠP NHẤT của TOÀN BỘ file cheatsheet:**
+
+```bash
+for ns in $(kubectl get ns -o jsonpath='{.items[*].metadata.name}'); do
+  kubectl get all,cm,secret,ingress,pvc -n $ns -o yaml > backup-$ns.yaml
+done
+#    │                    │                            │
+#    │                    │                            └─ MỘT FILE RIÊNG cho MỖI namespace
+#    │                    └────────────────────────────── NĂM loại resource GỘP LẠI TRONG CÙNG một lệnh get
+#    └─────────────────────────────────────────────────── DUYỆT QUA TỪNG namespace một, TỰ ĐỘNG
+```
+
+Bóc phần LẤY DANH SÁCH namespace — kỹ thuật `jsonpath` ĐÃ HỌC ở mục `kubectl get` NAY được DÙNG LẠI để **SINH DANH SÁCH CHO VÒNG LẶP**:
+
+```bash
+kubectl get ns -o jsonpath='{.items[*].metadata.name}'
+#                            │       │    └─ lấy field "name" của TỪNG namespace
+#                            │       └────── [*] = TẤT CẢ phần tử trong mảng items (ĐÃ HỌC ở mục kubectl)
+#                            └────────────── kết quả: "default ai-hub kube-system ..." (CÁCH NHAU BẰNG DẤU CÁCH)
+#  => $(...) CHÈN chuỗi NÀY vào vòng lặp for -> for TỰ TÁCH THEO DẤU CÁCH thành TỪNG namespace một
+```
+
+⚠️ **`kubectl get all,cm,secret,ingress,pvc` VẪN CHƯA PHẢI TUYỆT ĐỐI ĐẦY ĐỦ** — nó vẫn CÓ THỂ THIẾU những CRD tuỳ chỉnh (ArgoCD Application ĐàHỌC ở mục GitOps, cert-manager Certificate ĐàHỌC ở mục ngay trên, hay các Custom Resource của bất kỳ Operator nào khác đang chạy trong cluster). Backup THẬT SỰ TOÀN DIỆN cần LIỆT KÊ THÊM mọi CRD:
+
+```bash
+kubectl get crd -o jsonpath='{.items[*].metadata.name}'
+#                └─ ⭐ liệt kê MỌI loại CRD ĐANG CÓ trong cluster -> DÙNG kết quả này
+#                   để BIẾT CẦN backup THÊM những loại NÀO ngoài 5 loại chuẩn Ở TRÊN
+```
+
+**`kubectl neat` — công cụ DỌN SẠCH file backup TRƯỚC KHI commit vào Git:**
+
+```bash
+kubectl get deploy myapp -o yaml | kubectl neat > clean.yaml
+#                                  └─ ⭐ CẦN CÀI qua krew (ĐÃ HỌC ở mục k9s/stern/kubectx phía trên)
+```
+
+⭐ **VÌ SAO CẦN "neat"?** `kubectl get -o yaml` xuất ra CẢ những field **RUNTIME** mà chính K8s TỰ SINH RA (`status`, `uid`, `resourceVersion`, `creationTimestamp`, `managedFields`...) — NHỮNG FIELD NÀY **THAY ĐỔI LIÊN TỤC** dù nội dung CẤU HÌNH THẬT SỰ KHÔNG HỀ ĐỔI. Commit thẳng file CHƯA "neat" vào Git ⇒ `git diff` MỖI LẦN backup lại ĐỀU BÁO "CÓ THAY ĐỔI" dù thực ra CHẲNG CÓ GÌ THAY ĐỔI VỀ MẶT Ý NGHĨA — làm Git history TRỞ NÊN VÔ NGHĨA, TOÀN NHIỄU.
+
+⚠️ **Khuyến nghị "best practice" trong bảng CHÍNH LÀ KIM CHỈ NAM CỦA TOÀN BỘ mục GitOps ĐàHỌC TRƯỚC ĐÓ**: backup thủ công BẰNG `kubectl get -o yaml` chỉ nên là **PHƯƠNG ÁN DỰ PHÒNG**, KHÔNG PHẢI CÁCH LÀM CHÍNH THỐNG lâu dài — Git + ArgoCD/Flux (ĐàGIẢI THÍCH ĐẦY ĐỦ ở mục GitOps) MỚI LÀ "backup SỐNG" ĐÚNG NGHĨA: LUÔN CẬP NHẬT TỰ ĐỘNG, KHÔNG BAO GIỜ LỆCH SO VỚI THỰC TẾ CLUSTER.
+
+</details>
+
 ### 2. Backup Dữ liệu (Persistent Volume)
 
 ```bash
@@ -9444,6 +9500,56 @@ kubectl get volumesnapshot -n prod                 # Liệt kê snapshot
 # (tạo VolumeSnapshot bằng manifest có spec.source.persistentVolumeClaimName)
 ```
 
+<details>
+<summary><b>Bấm xem: ba cách backup PV — snapshot, exec dump, copy thủ công — chọn cách nào</b></summary>
+
+⭐ Mục này TỔNG HỢP LẠI BA CÁCH KHÁC NHAU để backup DỮ LIỆU THẬT trong PersistentVolume — mỗi cách phù hợp một TÌNH HUỐNG KHÁC NHAU, không phải cách nào cũng ÁP DỤNG ĐƯỢC cho MỌI loại dữ liệu.
+
+**Cách A — Velero snapshot (ĐàGIẢI THÍCH CHI TIẾT Ở MỤC VELERO PHÍA TRÊN):**
+
+```bash
+velero backup create data-$(date +%F) --snapshot-volumes --include-namespaces prod
+```
+
+⇒ ĐÂY LÀ CÁCH **TỰ ĐỘNG NHẤT**, nhưng CẦN CSI driver HOẶC TÍCH HỢP CLOUD PROVIDER hỗ trợ snapshot — KHÔNG PHẢI storage backend NÀO cũng CÓ TÍNH NĂNG NÀY (Longhorn, EBS, hầu hết storage cloud CÓ; MỘT SỐ storage đơn giản KHÔNG CÓ).
+
+⭐⭐ **Cách B — `pg_dump`/`mysqldump` QUA `kubectl exec` — ĐÂY LÀ CÁCH ĐÚNG ĐẮN NHẤT về mặt NGUYÊN LÝ cho DATABASE, ghép LẠI TỪ HAI mảnh ĐàHỌC RIÊNG LẺ TRƯỚC ĐÓ:**
+
+```bash
+kubectl exec -n prod <postgres-pod> -- pg_dump -U user db | gzip > db-$(date +%F).sql.gz
+#      │                              │
+#      │                              └─ ⭐ pg_dump CHẠY NGAY BÊN TRONG POD (ĐàHỌC ở mục PostgreSQL)
+#      └───────────────────────────────── kubectl exec ĐÓNG VAI TRÒ "CẦU NỐI" ĐƯA output CỦA pg_dump
+#                                          RA NGOÀI CHO gzip Ở PHÍA MÁY BẠN XỬ LÝ TIẾP (ĐàHỌC ở mục exec/logs)
+```
+
+🛑🛑 **VÌ SAO CÁCH B TỐT HƠN "COPY THẲNG FILE DATA THÔ" (Cách C bên dưới) KHI ĐỐI TƯỢNG LÀ DATABASE?**
+
+Database THẬT SỰ đang GHI LIÊN TỤC vào file trên đĩa NGAY TRONG LÚC bạn đang backup — copy THẲNG FILE THÔ (`kubectl cp`) TRONG LÚC database ĐANG HOẠT ĐỘNG rất DỄ tạo ra bản backup **KHÔNG NHẤT QUÁN** (một phần file cũ, một phần file mới, giữa chừng transaction CHƯA HOÀN TẤT) — RESTORE LẠI CÓ THỂ **HỎNG DATABASE HOÀN TOÀN, KHÔNG KHỞI ĐỘNG ĐƯỢC**. `pg_dump`/`mysqldump` ĐƯỢC THIẾT KẾ RIÊNG để xuất ra một **ẢNH CHỤP NHẤT QUÁN VỀ MẶT LOGIC** (ĐàGIẢI THÍCH RẤT KỸ Ở MỤC POSTGRESQL/MYSQL PHÍA TRÊN, ĐẶC BIỆT LÀ CỜ `--single-transaction`).
+
+**Cách C — copy thô toàn bộ thư mục — CHỈ HỢP CHO DỮ LIỆU KHÔNG PHẢI DATABASE ĐANG SỐNG:**
+
+```bash
+kubectl cp prod/<pod>:/data ./pv-backup
+#           └─ ⭐ ĐÚNG CÚ PHÁP đã học ở mục Debug & Log của kubectl: dấu ":" đứng về phía POD
+aws s3 cp db-$(date +%F).sql.gz s3://<bucket>/k8s-backups/
+```
+
+⇒ Cách C CHỈ HỢP với dữ liệu **TĨNH, KHÔNG ĐANG ĐƯỢC GHI LIÊN TỤC** (file upload, ảnh, log ĐàXOAY VÒNG). Với DATABASE ĐANG HOẠT ĐỘNG, LUÔN ƯU TIÊN Cách B.
+
+**VolumeSnapshot — snapshot Ở CẤP ĐỘ CSI driver, KHÁC HẲN Velero (Velero CÓ THỂ DÙNG cái NÀY Ở BÊN DƯỚI, nhưng cũng CÓ THỂ TỰ TAY TẠO RIÊNG):**
+
+```bash
+kubectl get volumesnapshot -n prod
+#                            └─ ⭐ liệt kê snapshot ĐÃ TẠO -- LƯU Ý: VolumeSnapshot LÀ MỘT LOẠI RESOURCE K8s,
+#                               GIỐNG HỆT tinh thần PVC/PV -- CÓ THỂ TỰ TAY viết YAML để TẠO,
+#                               KHÔNG BẮT BUỘC PHẢI ĐI QUA Velero
+```
+
+⚠️ VolumeSnapshot **KHÔNG PHẢI backup Ở NGOÀI cluster** THEO ĐÚNG NGUYÊN TẮC ĐàNHẮC NHIỀU LẦN ("backup phải nằm NGOÀI cluster") — snapshot THƯỜNG VẪN NẰM TRONG cùng hệ thống storage của cluster đó. MUỐN AN TOÀN THỰC SỰ, PHẢI **ĐẨY TIẾP** snapshot đó (hoặc dump SQL Ở TRÊN) RA storage NGOÀI (S3 CHẲNG HẠN) — ĐÚNG NHƯ dòng `aws s3 cp` Ở CUỐI ĐOẠN LỆNH TRÊN.
+
+</details>
+
 ### 3. Backup etcd (trạng thái cluster - QUAN TRỌNG NHẤT)
 
 ```bash
@@ -9458,6 +9564,47 @@ ETCDCTL_API=3 etcdctl snapshot status /backup/etcd-xxx.db --write-out=table   # 
 aws s3 cp /backup/etcd-*.db s3://<bucket>/etcd/      # Đẩy lên storage ngoài cluster!
 find /backup -name 'etcd-*.db' -mtime +14 -delete   # Giữ 14 ngày
 ```
+
+<details>
+<summary><b>Bấm xem: bản rút gọn cron-friendly của etcdctl snapshot — xem chi tiết ở mục etcd phía trên</b></summary>
+
+⭐ Toàn bộ lệnh trong mục này ĐàĐƯỢC GIẢI THÍCH RẤT CHI TIẾT Ở MỤC **"etcd - backup dữ liệu control plane"** phía trên (bóc TỪNG THAM SỐ TLS, GIẢI THÍCH VÌ SAO `ETCDCTL_API=3` BẮT BUỘC, VÌ SAO QUORUM QUAN TRỌNG). Ở ĐÂY CHỈ NHẮC LẠI PHIÊN BẢN **ĐÃ ĐẶT VÀO CRON** — điểm khác biệt DUY NHẤT LÀ TÊN FILE CÓ THÊM GIỜ PHÚT:
+
+```bash
+ETCDCTL_API=3 etcdctl snapshot save /backup/etcd-$(date +%F-%H%M).db \
+#                                              └─ ⭐ %F-%H%M: NGÀY-GIỜPHÚT
+#                                                 (KHÁC mục database Ở TRÊN CHỈ CÓ %F -- NGÀY THÔI)
+  --endpoints=https://127.0.0.1:2379 \
+  --cacert=/etc/kubernetes/pki/etcd/ca.crt \
+  --cert=/etc/kubernetes/pki/etcd/server.crt \
+  --key=/etc/kubernetes/pki/etcd/server.key
+```
+
+🛑🛑 **VÌ SAO ETCD CẦN THÊM CẢ GIỜ PHÚT TRONG TÊN FILE, KHÁC VỚI BACKUP DATABASE THÔNG THƯỜNG CHỈ CẦN NGÀY?**
+
+VÌ etcd LÀ **TRẠNG THÁI SỐNG CỦA TOÀN BỘ CONTROL PLANE** — MỘT SỰ CỐ NGHIÊM TRỌNG (như xoá nhầm namespace TOÀN BỘ, HOẶC BỊ TẤN CÔNG) CÓ THỂ CẦN KHÔI PHỤC VỀ **ĐÚNG THỜI ĐIỂM TRƯỚC KHI SỰ CỐ XẢY RA** — CHÍNH XÁC ĐẾN TỪNG GIỜ, KHÔNG CHỈ TỪNG NGÀY. Backup etcd THƯỜNG ĐẶT LỊCH **DÀY HƠN NHIỀU** (mỗi vài giờ, thay vì MỖI NGÀY MỘT LẦN như database ứng dụng thông thường) — vì HẬU QUẢ CỦA VIỆC MẤT DỮ LIỆU etcd LÀ NẶNG NỀ HƠN RẤT NHIỀU.
+
+```bash
+ETCDCTL_API=3 etcdctl snapshot status /backup/etcd-xxx.db --write-out=table
+#                     └─ ⭐ NHẮC LẠI: LUÔN kiểm tra NGAY SAU khi backup (ĐàGIẢI THÍCH KỸ Ở MỤC etcd
+#                        PHÍA TRÊN) -- ÁP DỤNG ĐÚNG NGUYÊN TẮC "test restore định kỳ" ĐàNÊU TỪ ĐẦU file
+
+aws s3 cp /backup/etcd-*.db s3://<bucket>/etcd/
+#                    └─ ⭐⭐ DẤU * TRONG TÊN FILE: shell TỰ ĐỘNG MỞ RỘNG (glob) THÀNH DANH SÁCH
+#                       MỌI FILE KHỚP MẪU -- CÓ THỂ ĐẨY NHIỀU BẢN SNAPSHOT CÙNG LÚC TRONG MỘT LỆNH
+#                       ⚠️ NHẮC LẠI NGUYÊN TẮC VÀNG: BACKUP PHẢI Ở NGOÀI CLUSTER
+#                       (etcd VÀ CLUSTER MÀ NÓ ĐANG QUẢN LÝ LÀ CÙNG MỘT HẠ TẦNG
+#                        -> CLUSTER SẬP LÀ CẢ ETCD LẪN BẢN BACKUP CỤC BỘ CÙNG SẬP THEO NẾU KHÔNG ĐẨY RA NGOÀI)
+
+find /backup -name 'etcd-*.db' -mtime +14 -delete
+#     └─ ⭐ CHỈ GIỮ 14 NGÀY -- NGẮN HƠN 30 NGÀY của backup database thông thường Ở MỤC TRƯỚC,
+#        VÌ etcd snapshot backup DÀY ĐẶC HƠN NHIỀU LẦN TRONG NGÀY -> TÍCH LŨY DUNG LƯỢNG NHANH HƠN
+#        NHIỀU nếu GIỮ LÂU NHƯ database thông thường
+#        ⚠️ NHẮC LẠI CẢNH BÁO: LUÔN CHẠY THỬ find KHÔNG -delete TRƯỚC để XEM DANH SÁCH,
+#        RỒI MỚI THÊM -delete VÀO SCRIPT CHÍNH THỨC
+```
+
+</details>
 
 ### 4. Vận hành thường ngày (Day-2 Operations)
 
@@ -9488,6 +9635,93 @@ kubectl delete pod --field-selector status.phase=Failed -A    # Xóa pod Failed
 kubectl delete pod --field-selector status.phase=Succeeded -A # Xóa pod đã xong
 ```
 
+<details>
+<summary><b>Bấm xem: tổng hợp các lệnh vận hành thường ngày — gộp nhiều mục đã học</b></summary>
+
+⭐ Mục này KHÔNG GIỚI THIỆU KHÁI NIỆM MỚI — nó GHÉP LẠI thành **MỘT QUY TRÌNH LÀM VIỆC HÀNG NGÀY** từ CÁC LỆNH ĐÃ GIẢI THÍCH RẤT KỸ Ở CÁC MỤC RIÊNG LẺ TRƯỚC ĐÓ. Chỉ bổ sung MỘT VÀI LỆNH MỚI CHƯA XUẤT HIỆN.
+
+**Nâng cấp node an toàn — ÁP DỤNG ĐÚNG quy trình ĐÃ HỌC RẤT KỸ Ở MỤC "Bảo trì node" PHÍA TRÊN:**
+
+```bash
+kubectl drain <node> --ignore-daemonsets --delete-emptydir-data   # (đã giải thích CHI TIẾT ở mục Bảo trì node)
+# ... nâng cấp / vá lỗi node ...
+kubectl uncordon <node>                                            # ⚠️ NHẮC LẠI: ĐỪNG QUÊN BƯỚC NÀY
+```
+
+**Kiểm tra sức khoẻ cluster — TỔNG HỢP nhiều lệnh ĐÃ HỌC RẢI RÁC:**
+
+```bash
+kubectl get nodes                                  # Node Ready hết chưa (ĐÃ học ở mục Context & Cluster)
+kubectl get pods -A | grep -vE 'Running|Completed'  # (ĐÃ học kỹ ở mục Troubleshoot Docker/K8s)
+kubectl top nodes && kubectl top pods -A            # (ĐÃ học, CẦN metrics-server)
+```
+
+⭐ **`kubectl get componentstatuses` — LỆNH MỚI xuất hiện lần đầu Ở ĐÂY:**
+
+```bash
+kubectl get componentstatuses
+#            └─ ⭐ TRẠNG THÁI của CHÍNH các thành phần CONTROL PLANE (scheduler, controller-manager, etcd)
+```
+
+⚠️ **LỆNH NÀY ĐÃ BỊ ĐÁNH DẤU "DEPRECATED" (không khuyến khích dùng nữa) TỪ CÁC PHIÊN BẢN K8s GẦN ĐÂY** — thường KHÔNG CÒN PHẢN ÁNH ĐÚNG THỰC TẾ trên các cluster hiện đại (đặc biệt với control plane chạy dạng managed như EKS/GKE/AKS ĐÃ HỌC Ở MỤC CLOUD CLI). Cách THAY THẾ ĐÁNG TIN CẬY HƠN để kiểm tra sức khoẻ CONTROL PLANE:
+
+```bash
+kubectl get --raw='/readyz?verbose'
+#                   └─ ⭐ hỏi TRỰC TIẾP API server VỀ TÌNH TRẠNG SẴN SÀNG của CHÍNH NÓ VÀ CÁC THÀNH PHẦN LIÊN QUAN,
+#                      CHI TIẾT VÀ CẬP NHẬT HƠN componentstatuses
+```
+
+```bash
+kubectl get events -A --sort-by=.lastTimestamp | tail -30
+#                       └─ (ĐÃ HỌC RẤT KỸ Ở MỤC "Xem resource (get/describe)" — lastTimestamp CHỨ KHÔNG PHẢI
+#                          creationTimestamp, ĐÚNG NHƯ ĐÃ GIẢI THÍCH VỀ SỰ KHÁC BIỆT GIỮA HAI TRƯỜNG NÀY)
+```
+
+**etcd bảo trì — HAI LỆNH ĐÃ HỌC, CỘNG THÊM MỘT LỆNH MỚI QUAN TRỌNG:**
+
+```bash
+ETCDCTL_API=3 etcdctl endpoint health              # (đã học ở mục etcd)
+ETCDCTL_API=3 etcdctl endpoint status --write-out=table   # (đã học ở mục etcd)
+```
+
+⭐⭐ **`etcdctl defrag` — LỆNH MỚI, CẦN HIỂU KỸ VÌ SAO "NÉN DB" LẠI CẦN THIẾT VÀ RỦI RO KHI CHẠY SAI CÁCH:**
+
+```bash
+ETCDCTL_API=3 etcdctl defrag
+#                     └─ ⭐ NÉN LẠI FILE DATABASE etcd TRÊN ĐĨA, GIẢM DUNG LƯỢNG THỰC SỰ CHIẾM
+```
+
+**VÌ SAO CẦN DEFRAG?** etcd, GIỐNG NHIỀU LOẠI DATABASE KHÁC, KHÔNG TỰ ĐỘNG TRẢ LẠI KHÔNG GIAN ĐĨA NGAY SAU KHI XOÁ DỮ LIỆU (key bị xoá chỉ được ĐÁNH DẤU "TRỐNG" BÊN TRONG FILE, KHÔNG TỰ CO NHỎ FILE LẠI) — THEO THỜI GIAN, FILE DATABASE **PHÌNH TO DẦN** DÙ SỐ LƯỢNG KEY THỰC TẾ KHÔNG TĂNG NHIỀU. `defrag` GIẢI PHÓNG LẠI KHÔNG GIAN ĐÓ.
+
+🛑🛑 **`defrag` LÀ THAO TÁC NẶNG, CÓ THỂ GÂY GIÁN ĐOẠN TẠM THỜI — KHÔNG PHẢI LỆNH "CHẠY VÔ TƯ BẤT CỨ LÚC NÀO".** TRONG LÚC DEFRAG, MEMBER ETCD ĐÓ **TẠM THỜI KHÔNG PHẢN HỒI ĐƯỢC REQUEST** — CHẠY TRÊN MEMBER ĐANG LÀ **LEADER** CÓ THỂ GÂY GIÁN ĐOẠN TOÀN CLUSTER MỘT KHOẢNG NGẮN. QUY TẮC AN TOÀN: **CHỈ DEFRAG TỪNG MEMBER MỘT** (KHÔNG BAO GIỜ ĐỒNG THỜI CẢ CỤM), VÀ **ƯU TIÊN CHẠY TRÊN MEMBER KHÔNG PHẢI LEADER TRƯỚC** (KIỂM TRA AI ĐANG LÀ LEADER BẰNG `endpoint status` ĐÃ HỌC Ở MỤC ETCD).
+
+**Chứng chỉ control plane — LỆNH MỚI, RẤT QUAN TRỌNG VÀ DỄ BỊ BỎ QUÊN:**
+
+```bash
+kubeadm certs check-expiration
+#              └─ ⭐⭐ kiểm tra HẠN của TOÀN BỘ chứng chỉ TLS NỘI BỘ CỦA CONTROL PLANE
+#                 (KHÁC HẲN chứng chỉ TLS của ỨNG DỤNG đã học ở mục SSL/cert-manager phía trên
+#                  — ĐÂY LÀ CERT DÙNG ĐỂ CÁC THÀNH PHẦN CONTROL PLANE TỰ TIN TƯỞNG LẪN NHAU)
+```
+
+🛑🛑🛑 **ĐÂY LÀ MỘT TRONG NHỮNG SỰ CỐ NGHIÊM TRỌNG VÀ DỄ BỊ LÃNG QUÊN NHẤT CỦA VIỆC VẬN HÀNH K8s LÂU DÀI**: chứng chỉ NỘI BỘ CỦA CONTROL PLANE (khác hoàn toàn với cert TLS website ứng dụng) **MẶC ĐỊNH CHỈ CÓ HẠN ĐÚNG 1 NĂM** kể từ lúc `kubeadm init`. HẾT HẠN MÀ KHÔNG GIA HẠN ⇒ **CÁC THÀNH PHẦN CONTROL PLANE NGỪNG TIN TƯỞNG LẪN NHAU** ⇒ **TOÀN BỘ CLUSTER NGỪNG HOẠT ĐỘNG** (`kubectl` KHÔNG DÙNG ĐƯỢC NỮA) — MỘT SỰ CỐ **RẤT KHÓ CHẨN ĐOÁN** NẾU KHÔNG BIẾT TRƯỚC VỀ NÓ, VÌ TRIỆU CHỨNG BỀ NGOÀI TRÔNG GIỐNG NHIỀU LOẠI LỖI KHÁC NHAU.
+
+```bash
+kubeadm certs renew all
+#              └─ ⭐ gia hạn TẤT CẢ chứng chỉ nội bộ CÙNG LÚC (NÊN LÀM ĐỊNH KỲ, ĐỪNG ĐỢI GẦN HẾT HẠN)
+```
+
+⚠️ Sau `renew all`, THƯỜNG CẦN **RESTART CÁC STATIC POD CỦA CONTROL PLANE** (kube-apiserver, controller-manager, scheduler) ĐỂ CHÚNG **NẠP LẠI** chứng chỉ MỚI — chỉ chạy `renew` KHÔNG TỰ ĐỘNG ÁP DỤNG NGAY (GIỐNG HỆT tinh thần `daemon-reload` ĐÃ HỌC Ở MỤC systemd: FILE TRÊN ĐĨA ĐÃ ĐỔI, NHƯNG TIẾN TRÌNH ĐANG CHẠY TRONG BỘ NHỚ VẪN GIỮ BẢN CŨ CHO TỚI KHI ĐƯỢC NẠP LẠI).
+
+**Dọn dẹp pod đã xong việc — ÁP DỤNG `--field-selector` ĐÃ HỌC Ở MỤC "Troubleshoot pod không chạy được":**
+
+```bash
+kubectl delete pod --field-selector status.phase=Failed -A
+kubectl delete pod --field-selector status.phase=Succeeded -A
+```
+
+</details>
+
 ### 5. Quy trình khôi phục thảm họa (DR Runbook)
 
 ```text
@@ -9507,6 +9741,80 @@ Nguyên tắc vàng:
   - Test restore định kỳ — backup không test = không có backup
   - 3-2-1: 3 bản sao, 2 loại lưu trữ, 1 bản offsite
 ```
+
+<details>
+<summary><b>Bấm xem: giải nghĩa runbook DR — mảnh ghép cuối cùng nối tất cả các mục đã học lại</b></summary>
+
+⭐⭐⭐ Đây là **PHẦN TỔNG KẾT** của TOÀN BỘ cheatsheet — KHÔNG CÓ LỆNH MỚI, mà LÀ **SƠ ĐỒ QUYẾT ĐỊNH** nối TẤT CẢ những kỹ thuật ĐÃ GIẢI THÍCH RẢI RÁC Ở CÁC MỤC TRƯỚC lại thành MỘT QUY TRÌNH THỰC HÀNH KHI THẢM HOẠ THẬT SỰ XẢY RA. Đọc từng bước và ĐỐI CHIẾU NGƯỢC LẠI mục tương ứng nếu cần ÔN LẠI CHI TIẾT.
+
+```text
+Khi mất cluster / mất control plane:
+  1. Dựng lại control-plane node (kubeadm init hoặc theo IaC)
+     └─ "theo IaC" NGHĨA LÀ GÌ? -- NHẮC LẠI mục Terraform ĐÃ HỌC: hạ tầng (VM, network)
+        ĐƯỢC ĐỊNH NGHĨA SẴN TRONG CODE -> chỉ cần `terraform apply` LẠI LÀ CÓ ĐÚNG HẠ TẦNG NHƯ CŨ,
+        KHÔNG PHẢI TỰ TAY CLICK TẠO LẠI TỪNG VM
+
+  2. Khôi phục etcd từ snapshot:
+     etcdctl snapshot restore /backup/etcd-xxx.db --data-dir /var/lib/etcd-new
+     (trỏ static pod etcd vào data-dir mới, restart kubelet)
+     └─ ⭐ ĐÂY CHÍNH LÀ LỆNH ĐÃ CẢNH BÁO RẤT KỸ Ở MỤC "etcd backup" PHÍA TRÊN:
+        KHÔNG GHI ĐÈ TRỰC TIẾP, PHẢI DÙNG --data-dir MỚI HOÀN TOÀN
+
+  3. Kiểm tra: kubectl get nodes && kubectl get pods -A
+     └─ ⭐ ĐÂY CHÍNH LÀ BƯỚC "Kiểm tra sức khoẻ cluster" ĐÃ HỌC Ở MỤC 4 PHÍA TRÊN
+
+  4. Nếu KHÔNG có etcd backup nhưng có manifest trong Git:
+     -> dựng cluster mới, để ArgoCD/Flux sync lại toàn bộ từ Git
+     └─ ⭐⭐⭐ ĐÂY CHÍNH XÁC LÀ GIÁ TRỊ CỐT LÕI CỦA GITOPS ĐÃ GIẢI THÍCH RẤT KỸ Ở MỤC ARGOCD/FLUXCD:
+        "Git là NGUỒN SỰ THẬT" -- KHÔNG CẦN etcd backup VẪN DỰNG LẠI ĐƯỢC TOÀN BỘ MANIFEST,
+        CHỈ CẦN TRỎ ArgoCD VÀO ĐÚNG REPO, NÓ TỰ ĐỘNG SYNC LẠI MỌI THỨ TỪ ĐẦU
+        (⚠️ NHƯNG DỮ LIỆU THẬT TRONG DATABASE THÌ VẪN KHÔNG PHỤC HỒI ĐƯỢC BẰNG CÁCH NÀY --
+         PHẢI QUA BƯỚC 5 DƯỚI ĐÂY)
+
+  5. Khôi phục dữ liệu PV: velero restore, hoặc restore DB dump
+     └─ ⭐ HAI CÁCH ĐÃ HỌC Ở MỤC "Backup Dữ liệu (Persistent Volume)" PHÍA TRÊN --
+        velero restore (Cách A) HOẶC pg_restore/mysql < backup.sql (đã học ở mục PostgreSQL/MySQL)
+
+  6. Verify: chạy smoke test, kiểm tra ingress/cert/DNS
+     └─ "smoke test" LÀ GÌ? -- BỘ TEST NHANH, TỐI THIỂU, KIỂM TRA "HỆ THỐNG CÓ SỐNG KHÔNG"
+        (KHÁC VỚI TEST ĐẦY ĐỦ TOÀN BỘ NGHIỆP VỤ -- smoke test CHỈ CẦN VÀI PHÚT, NHẰM XÁC NHẬN
+         NHANH TRƯỚC KHI TUYÊN BỐ "ĐÃ KHÔI PHỤC XONG")
+     └─ ingress: dùng curl (đã học ở mục HTTP/curl) để TEST TỪNG ENDPOINT QUAN TRỌNG
+     └─ cert: dùng openssl (đã học ở mục SSL/Certificate) HOẶC `kubectl get certificate`
+        (đã học ở mục cert-manager) ĐỂ XÁC NHẬN TLS ĐÃ CẤP LẠI ĐÚNG
+     └─ DNS: dùng dig (đã học ở mục DNS) ĐỂ XÁC NHẬN BẢN GHI VẪN TRỎ ĐÚNG VỀ HẠ TẦNG MỚI
+```
+
+⭐⭐⭐ **"Nguyên tắc vàng" — BA DÒNG CUỐI CÙNG CỦA TOÀN BỘ CHEATSHEET, TÓM TẮT LẠI TINH THẦN XUYÊN SUỐT MỌI MỤC ĐÃ HỌC:**
+
+```text
+Nguyên tắc vàng:
+  - Backup phải để NGOÀI cluster (S3/GCS), không để trong chính cluster
+    └─ ⭐⭐⭐ NGUYÊN TẮC NÀY ĐÃ NHẮC ĐI NHẮC LẠI XUYÊN SUỐT: mục Velero (backup-location get),
+       mục etcd (aws s3 cp), mục Backup database (aws s3 cp) -- KHÔNG PHẢI NGẪU NHIÊN LẶP LẠI
+       NHIỀU LẦN, MÀ VÌ ĐÂY LÀ SAI LẦM PHỔ BIẾN NHẤT: "CÓ BACKUP" NHƯNG BACKUP ĐÓ NẰM
+       CÙNG MỘT HẠ TẦNG VỚI DỮ LIỆU GỐC -> THẢM HOẠ XOÁ SẠCH CẢ HAI CÙNG LÚC
+
+  - Test restore định kỳ — backup không test = không có backup
+    └─ ⭐⭐⭐ ĐÂY LÀ CÂU MỞ ĐẦU CỦA TOÀN BỘ TRIẾT LÝ BACKUP TRONG CHEATSHEET NÀY --
+       ĐÃ ÁP DỤNG CỤ THỂ Ở MỖI MỤC: "snapshot status" NGAY SAU KHI backup etcd,
+       "backup describe --details" SAU KHI velero backup, "dry-run" TRƯỚC MỌI find -delete
+       -- MỘT FILE BACKUP CHƯA TỪNG ĐƯỢC THỬ RESTORE LÀ MỘT FILE **CHƯA ĐƯỢC CHỨNG MINH LÀ HOẠT ĐỘNG**,
+       DÙ LỆNH TẠO RA NÓ "CHẠY XONG KHÔNG BÁO LỖI GÌ"
+
+  - 3-2-1: 3 bản sao, 2 loại lưu trữ, 1 bản offsite
+    └─ ⭐ QUY TẮC KINH ĐIỂN NGÀNH BACKUP, GIẢI THÍCH RÕ TỪNG SỐ:
+       "3 bản sao"   = dữ liệu gốc + ÍT NHẤT 2 bản backup (không phải chỉ 1 backup DUY NHẤT)
+       "2 loại lưu trữ" = ví dụ: ổ đĩa cục bộ VÀ object storage (S3) -- KHÔNG DỒN HẾT
+                          vào MỘT LOẠI CÔNG NGHỆ LƯU TRỮ DUY NHẤT (lỗi công nghệ đó là MẤT HẾT)
+       "1 bản offsite"  = ÍT NHẤT MỘT BẢN nằm Ở VỊ TRÍ VẬT LÝ/HẠ TẦNG HOÀN TOÀN KHÁC
+                          (khác region, khác nhà cung cấp cloud, hoặc khác datacenter vật lý --
+                           PHÒNG TRƯỜNG HỢP CẢ MỘT KHU VỰC/NHÀ CUNG CẤP GẶP SỰ CỐ LỚN)
+```
+
+⇒ **TÓM TẮT 1 CÂU CHO TOÀN BỘ MỤC NÀY**: một DR Runbook TỐT KHÔNG PHẢI LÀ MỘT DANH SÁCH LỆNH HỌC THUỘC LÒNG, MÀ LÀ **BẰNG CHỨNG** rằng TỪNG BƯỚC TRONG ĐÓ **ĐÃ ĐƯỢC THỬ NGHIỆM THẬT** ÍT NHẤT MỘT LẦN TRƯỚC KHI THẢM HOẠ THẬT SỰ XẢY RA — ĐÚNG NHƯ TINH THẦN "test restore định kỳ" ĐÃ NHẮC XUYÊN SUỐT TOÀN BỘ CHEATSHEET NÀY.
+
+</details>
 
 
 
