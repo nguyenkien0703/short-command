@@ -7254,6 +7254,75 @@ gh pr checks                           # Xem trạng thái CI của PR hiện t�
 # act                                  # Chạy GitHub Actions ở local (công cụ nomad/act)
 ```
 
+<details>
+<summary><b>Bấm xem: giải nghĩa gh CLI — và khác biệt run/workflow</b></summary>
+
+**Tiền đề — hai khái niệm phải phân biệt trước khi đọc lệnh:**
+
+| | **Workflow** | **Run** |
+|---|---|---|
+| Là gì | File `.yml` định nghĩa **quy trình** (định nghĩa TĨNH) | **Một lần thực thi** cụ thể của workflow đó |
+| Số lượng | Cố định theo số file trong `.github/workflows/` | Mỗi lần push/trigger tạo ra **một run mới** |
+| Ví von | Công thức nấu ăn | Một lần nấu theo công thức đó |
+
+| Lệnh | Làm gì |
+|---|---|
+| `gh workflow list` | Liệt kê **file workflow** (công thức) |
+| `gh run list` | Liệt kê **các lần chạy** (đã nấu bao nhiêu lần) |
+| `gh run view <id>` | Chi tiết một lần chạy |
+| `gh run view <id> --log` | ⭐ Log **đầy đủ** mọi job |
+| `gh run view <id> --log-failed` | Chỉ log của **job/step bị fail** — bỏ qua job thành công |
+| `gh run watch <id>` | Bám realtime, tự cập nhật tới khi xong |
+| `gh run rerun <id>` | Chạy lại **toàn bộ** |
+| `gh run rerun <id> --failed` | ⭐ Chỉ chạy lại **job đã fail**, giữ nguyên job đã pass |
+
+⭐ **`--log-failed` — vì sao đáng dùng hơn `--log` khi debug:**
+
+```bash
+gh run view 123456 --log-failed
+#                   └─ CI có 10 job, 9 job pass, 1 job fail
+#                      -> chỉ in log của ĐÚNG job fail đó, không phải cuộn qua 9 job kia trước
+```
+
+⇒ Với pipeline nhiều job/step, `--log` thường ra hàng nghìn dòng — `--log-failed` đi thẳng vào chỗ cần xem.
+
+⭐ **`gh run rerun --failed` — tiết kiệm thời gian và tiền (phút CI):**
+
+```bash
+gh run rerun 123456 --failed
+#                     └─ ⭐ chỉ chạy lại job ĐàFAIL, các job đã PASS giữ nguyên kết quả cũ
+#                        (không cần build lại từ đầu nếu chỉ 1 trong 10 job bị lỗi mạng tạm thời)
+```
+
+⚠️ **`--failed` chỉ hợp lý khi lỗi có tính "tạm thời"** (timeout mạng, flaky test). Nếu lỗi do **code sai thật sự**, sửa code trước rồi mới rerun — rerun không sửa được code.
+
+**Trigger workflow thủ công — cần khai báo `workflow_dispatch` trong file YAML trước:**
+
+```bash
+gh workflow run deploy.yml -f environment=staging -f version=1.2.3
+#                          └─ -f: truyền INPUT cho workflow (phải khớp tên input định nghĩa trong YAML)
+```
+
+⚠️ Lệnh này **chỉ chạy được** nếu workflow YAML có khai báo trigger `on: workflow_dispatch:` — thiếu khai báo đó, `gh workflow run` sẽ báo lỗi không tìm thấy cách trigger thủ công.
+
+**Kiểm tra CI của PR hiện tại — chạy ngay trong thư mục repo, không cần biết PR số mấy:**
+
+```bash
+gh pr checks
+#        └─ ⭐ tự nhận diện PR gắn với BRANCH hiện tại đang checkout, in bảng trạng thái từng check
+```
+
+**`act` — chạy GitHub Actions ngay trên máy local, không cần push lên GitHub:**
+
+```bash
+act push                    # giả lập sự kiện "push" để test workflow cục bộ
+act -j build                # chỉ chạy MỘT job tên "build"
+```
+
+⇒ Rất hữu ích để **lặp nhanh** khi sửa file `.yml` — không phải commit + push + chờ CI thật mỗi lần thử. ⚠️ `act` chạy bằng Docker container mô phỏng runner GitHub — **không giống 100%** môi trường thật (thiếu một số secret/context), nên vẫn cần chạy thật trên GitHub trước khi merge.
+
+</details>
+
 ### GitLab CI
 ```bash
 # Kiểm tra cú pháp .gitlab-ci.yml tại: GitLab > CI/CD > Editor > Validate
@@ -7265,6 +7334,61 @@ glab ci view                           # Xem pipeline hiện tại
 glab ci trace                          # Xem log job realtime
 glab ci retry <id>                     # Chạy lại pipeline
 ```
+
+<details>
+<summary><b>Bấm xem: giải nghĩa gitlab-runner và glab CLI</b></summary>
+
+**Tiền đề — GitLab CI khác GitHub Actions ở kiến trúc runner:** GitLab tách rõ **server** (nơi lưu file `.gitlab-ci.yml`, điều phối pipeline) và **runner** (máy thực thi job) — runner có thể tự host trên hạ tầng nội bộ công ty, phù hợp môi trường **VDI air-gapped** không muốn gửi code ra ngoài.
+
+| Lệnh | Làm gì |
+|---|---|
+| `gitlab-runner verify` | Kiểm tra **runner** có kết nối được với GitLab server không |
+| `gitlab-runner list` | Danh sách runner **đã đăng ký** trên máy này |
+| `gitlab-runner exec docker <job>` | ⭐ Chạy **một job** ngay trên máy local, không cần push |
+| `glab ci list` | Liệt kê pipeline (tương đương `gh run list`) |
+| `glab ci view` | Xem pipeline hiện tại |
+| `glab ci trace` | ⭐ Log **realtime** của job đang chạy |
+| `glab ci retry <id>` | Chạy lại pipeline |
+
+⭐ **`gitlab-runner exec docker <job>` — thử nghiệm local trước khi push, tương tự `act` của GitHub:**
+
+```bash
+gitlab-runner exec docker build-job
+#                          └─ TÊN JOB, phải khớp CHÍNH XÁC tên định nghĩa trong .gitlab-ci.yml
+```
+
+⚠️ **`exec` KHÔNG mô phỏng 100%** — nó **không có** các biến CI mà GitLab server cấp tự động khi pipeline chạy thật (`CI_COMMIT_SHA`, `CI_PIPELINE_ID`...), và **không chạy được** các job phụ thuộc `needs`/`stage` liên kết nhau như pipeline thật. Chỉ hợp để test **nhanh cú pháp và logic của một job đơn lẻ**.
+
+⭐ **`glab ci trace` — bám log THEO ĐÚNG job đang chạy, không phải toàn pipeline:**
+
+```bash
+glab ci trace                    # bám job hiện tại của pipeline MỚI NHẤT trên branch đang đứng
+glab ci trace --job=<job-id>     # chỉ định rõ job nào nếu pipeline có nhiều job song song
+```
+
+**Kiểm tra cú pháp `.gitlab-ci.yml` TRƯỚC khi commit — tránh phải chờ push rồi mới biết sai:**
+
+Cách nhanh nhất là dùng **CI Lint** trên giao diện web: *GitLab → CI/CD → Editor → tab Validate* — dán nội dung YAML vào, GitLab server tự kiểm tra cú pháp **và** logic (`needs`, `rules`, biến tham chiếu) mà không cần chạy pipeline thật.
+
+⚠️ Cũng có API để lint từ dòng lệnh (không cần mở trình duyệt) — hữu ích khi làm việc trên VDI hạn chế:
+
+```bash
+curl -sS --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
+  --data-urlencode "content@.gitlab-ci.yml" \
+  "https://gitlab.company.vn/api/v4/ci/lint" | jq '.valid, .errors'
+#                                                    └─ true/false          └─ danh sách lỗi cụ thể nếu có
+```
+
+**Debug pipeline fail — quy trình giống ArgoCD/K8s: luôn xem chi tiết trước khi đoán:**
+
+```bash
+glab ci view --web              # mở trực tiếp trên trình duyệt để xem log đầy đủ, có màu, dễ đọc
+glab ci status                  # trạng thái GỌN của pipeline mới nhất trên branch hiện tại
+```
+
+⚠️ **Biến CI/CD nhạy cảm (secret) khai báo trên UI GitLab (Settings → CI/CD → Variables)** — không nằm trong file `.gitlab-ci.yml` — nên **không thấy trong Git history**, đây là chỗ đúng để lưu token/password thay vì viết cứng vào YAML.
+
+</details>
 
 ---
 
@@ -7284,6 +7408,85 @@ vault operator unseal                  # Unseal vault (khi bị sealed)
 vault token lookup                     # Xem thông tin token hiện tại
 ```
 
+<details>
+<summary><b>Bấm xem: giải nghĩa Vault — sealed/unsealed và KV v1 vs v2</b></summary>
+
+⭐ **Tiền đề — "sealed" là gì, và vì sao Vault sinh ra khái niệm này?**
+
+Vault mã hoá **mọi thứ** trên đĩa bằng một **master key**. Khi Vault khởi động (hoặc restart), nó ở trạng thái **`sealed`** (bị khoá) — dữ liệu **nằm đó nhưng KHÔNG đọc được**, kể cả bởi chính Vault, cho tới khi có đủ **"khoá gộp"** (unseal keys) đưa vào để tái tạo master key trong RAM.
+
+```bash
+vault status
+# Sealed          true
+#                  └─ ⭐ true = Vault ĐANG KHOÁ, MỌI API đều từ chối, kể cả với token hợp lệ
+```
+
+⇒ Đây là lớp bảo vệ: dù kẻ tấn công **lấy trộm được cả ổ đĩa** chứa dữ liệu Vault, dữ liệu vẫn **vô nghĩa** nếu không có đủ số khoá unseal (thường **thiết kế cần 3/5 khoá**, chia cho nhiều người giữ riêng — không ai một mình mở khoá được).
+
+```bash
+export VAULT_ADDR='https://vault.company.vn:8200'
+#      └─ ⭐ BẮT BUỘC set biến này trước MỌI lệnh vault khác trong phiên làm việc,
+#         nếu không vault mặc định tìm ở localhost:8200 -> báo lỗi kết nối refused
+
+vault status                        # kiểm tra sealed/unsealed TRƯỚC khi làm gì khác
+vault operator unseal
+#                └─ nhập MỘT khoá unseal (chạy lệnh này NHIỀU LẦN với khoá KHÁC NHAU,
+#                   tới khi đủ số khoá tối thiểu theo cấu hình, ví dụ 3/5)
+```
+
+**Xác thực — nhiều cách, `vault login` chỉ là một trong số đó:**
+
+```bash
+vault login                    # hỏi nhập TOKEN trực tiếp (hoặc mở trình duyệt tuỳ auth method cấu hình)
+vault login -method=userpass username=kiennv     # xác thực bằng user/pass
+vault token lookup             # ⭐ xem token HIỆN TẠI: hết hạn khi nào, thuộc policy nào
+```
+
+⚠️ **`vault token lookup`** rất đáng chạy trước một thao tác quan trọng — token Vault thường có **TTL (thời gian sống) ngắn** (đôi khi chỉ vài giờ), hết hạn giữa chừng thao tác sẽ khiến lệnh **đột ngột bị từ chối**.
+
+⭐ **KV v1 vs KV v2 — khác biệt cú pháp quan trọng, gõ nhầm là lỗi khó hiểu:**
+
+| | KV **v1** | KV **v2** (⭐ mặc định hiện nay) |
+|---|---|---|
+| Có lưu lịch sử version? | ❌ Không | ✅ **Có** — sửa đè không mất bản cũ |
+| Cú pháp đường dẫn khi dùng API thô | `secret/myapp` | `secret/data/myapp` (⚠️ có thêm `data/`) |
+| Cú pháp khi dùng `vault kv` CLI | Giống nhau | Giống nhau — **CLI tự lo phần `data/`** |
+
+```bash
+vault kv get secret/myapp                 # đọc TOÀN BỘ secret tại đường dẫn này
+vault kv get -field=password secret/myapp # ⭐ chỉ lấy ĐÚNG MỘT field, gọn cho script
+vault kv put secret/myapp password=abc123 user=admin
+#                                          └─ ghi NHIỀU field cùng lúc, cách nhau bằng khoảng trắng
+vault kv list secret/                      # liệt kê các path con (không phải nội dung secret)
+```
+
+🛑 **`vault kv put` GHI ĐÈ TOÀN BỘ, không phải chỉ thêm field mới:**
+
+```bash
+# Secret hiện có: {password: "old", user: "admin"}
+vault kv put secret/myapp password=new
+# 🛑 Kết quả: {password: "new"} -- field "user" đã BIẾN MẤT vì put GHI ĐÈ CẢ OBJECT
+```
+
+⇒ Muốn **chỉ sửa một field, giữ nguyên các field khác**, dùng `vault kv patch` (chỉ có ở KV v2):
+
+```bash
+vault kv patch secret/myapp password=new
+#              └─ ⭐ CHỈ đổi field "password", các field KHÁC được GIỮ NGUYÊN
+```
+
+**Xem lịch sử version (chỉ có ở KV v2) — tính năng chính khiến v2 được ưa dùng:**
+
+```bash
+vault kv get -version=2 secret/myapp        # đọc PHIÊN BẢN CŨ số 2 (không phải bản mới nhất)
+vault kv metadata get secret/myapp          # xem TOÀN BỘ lịch sử version + thời gian tạo mỗi bản
+vault kv destroy -versions=1 secret/myapp   # xoá VĨNH VIỄN một version cụ thể (khác undelete được)
+```
+
+⚠️ **`vault kv delete` (xoá thường) khác `vault kv destroy` (xoá vĩnh viễn):** `delete` chỉ **đánh dấu ẩn**, vẫn khôi phục được bằng `vault kv undelete`; `destroy` xoá **thật sự, không hoàn tác**. Nhầm hai lệnh này là mất dữ liệu không cứu được.
+
+</details>
+
 ### Kubernetes Secrets & mã hóa (GitOps-friendly)
 ```bash
 # Secret thường
@@ -7299,6 +7502,65 @@ sops -e secrets.yaml > secrets.enc.yaml   # Mã hóa
 sops -d secrets.enc.yaml               # Giải mã
 sops secrets.enc.yaml                   # Mở editor sửa file đã mã hóa
 ```
+
+<details>
+<summary><b>Bấm xem: giải nghĩa Sealed Secrets và SOPS — vì sao cần chúng để commit secret vào Git</b></summary>
+
+⭐ **Tiền đề — vì sao K8s Secret THƯỜNG (đã học ở mục Namespace & Config phía trên) KHÔNG commit được vào Git?**
+
+Nhắc lại mảnh ghép quan trọng: Secret của K8s chỉ **base64**, **KHÔNG mã hoá thật** — ai đọc được file YAML là đọc được secret gốc ngay lập tức (`base64 -d`). Với triết lý **GitOps** (mọi thứ nằm trong Git), commit thẳng Secret dạng này vào Git ⇒ **toàn bộ password/token lộ ra** cho bất kỳ ai có quyền đọc repo, kể cả khi đã xoá commit sau đó (lịch sử Git vẫn giữ).
+
+⇒ **Sealed Secrets** và **SOPS** giải quyết đúng bài toán này: **mã hoá thật sự** secret trước khi commit, chỉ **giải mã được bởi đúng nơi cần dùng** (cluster / người có khoá).
+
+**Sealed Secrets — mã hoá bằng khoá RIÊNG của cluster đích, chỉ cluster đó giải mã được:**
+
+```bash
+kubeseal --format yaml < secret.yaml > sealed-secret.yaml
+#         │                │            └─ file MÃ HOÁ — AN TOÀN để commit vào Git
+#         │                └────────────── file Secret GỐC (thường, base64) — KHÔNG commit file này
+#         └─ ⭐ kubeseal GỌI SANG controller đang chạy TRONG cluster để lấy PUBLIC KEY mã hoá
+#              (cần cluster đang chạy VÀ kubeseal-controller đã cài sẵn — không mã hoá offline hoàn toàn được)
+
+kubectl apply -f sealed-secret.yaml
+#              └─ controller trong cluster TỰ ĐỘNG giải mã và sinh ra Secret THƯỜNG bên trong cluster
+#                 (bạn KHÔNG cần chạy lệnh giải mã tay — quá trình này TỰ ĐỘNG)
+```
+
+⭐ **Đặc điểm cốt lõi — mã hoá GẮN VỚI ĐÚNG một cluster cụ thể:**
+
+`SealedSecret` được mã hoá bằng **public key riêng của controller trong cluster đích** — chỉ **chính cluster đó** (có đúng private key tương ứng) mới giải mã được. Copy file `sealed-secret.yaml` sang **cluster khác** (dev vs prod chẳng hạn) ⇒ cluster kia **không giải mã được**, báo lỗi.
+
+⇒ Đây vừa là **ưu điểm bảo mật** (lộ file cũng không ai giải mã được nếu không có đúng cluster) vừa là **hạn chế thực tế** (không tái sử dụng file sealed giữa các môi trường — mỗi môi trường phải seal riêng).
+
+⚠️ **Backup private key của controller là việc SỐNG CÒN.** Cluster bị xoá và dựng lại (mất private key cũ) ⇒ **mọi SealedSecret cũ trở nên vô dụng vĩnh viễn**, không giải mã lại được — phải seal lại từ đầu với secret gốc (nếu còn giữ ở nơi khác).
+
+**SOPS — mã hoá theo TỪNG FIELD trong file, giữ nguyên cấu trúc YAML để đọc được:**
+
+```bash
+sops -e secrets.yaml > secrets.enc.yaml
+#     └─ e = encrypt: mã hoá GIÁ TRỊ của từng field, GIỮ NGUYÊN tên field và cấu trúc YAML
+#        (khác Sealed Secrets: SOPS vẫn ĐỌC ĐƯỢC cấu trúc, chỉ VALUE bị mã hoá)
+
+sops -d secrets.enc.yaml
+#     └─ d = decrypt: giải mã ra màn hình (KHÔNG tự ghi ra file — phải tự > ra file nếu cần)
+
+sops secrets.enc.yaml
+#     └─ ⭐ KHÔNG có -e/-d: TỰ ĐỘNG giải mã, MỞ EDITOR để sửa, rồi TỰ ĐỘNG mã hoá lại khi lưu
+#        (một lệnh làm trọn quy trình sửa an toàn, không cần nhớ 2 bước riêng)
+```
+
+⭐ **SOPS khác Sealed Secrets ở chỗ NÀO — chọn công cụ nào tuỳ nhu cầu:**
+
+| | Sealed Secrets | SOPS |
+|---|---|---|
+| Mã hoá theo | **Public key của MỘT cluster cụ thể** | Khoá PGP/**KMS** (AWS KMS, GCP KMS, age...) — độc lập cluster |
+| `git diff` đọc được gì khi thay đổi 1 field? | ❌ Toàn bộ khối mã hoá đổi khác, không rõ field nào đổi | ⭐ Vẫn thấy **tên field** không đổi, chỉ giá trị (mã hoá) đổi |
+| Cần cluster đang chạy để mã hoá? | ✅ Có (gọi tới controller) | ❌ Không — mã hoá offline được |
+| Dùng cho | Chuyên biệt cho Secret của K8s | ⭐ Bất kỳ file YAML/JSON/ENV nào, không chỉ K8s |
+
+⚠️ **Cả hai công cụ đều KHÔNG thay thế được RBAC.** Chúng bảo vệ secret **trong Git**, nhưng khi secret đã được **giải mã bên trong cluster** (thành K8s Secret thường), việc **ai đọc được secret đó trong cluster** vẫn phụ thuộc hoàn toàn vào RBAC (`kubectl get secret`) như đã nói ở mục Namespace & Config. Hai công cụ này bảo vệ **một khâu**, không phải toàn bộ vòng đời secret.
+
+</details>
 
 ---
 
@@ -7321,6 +7583,85 @@ journalctl --vacuum-time=7d                      # Dọn log cũ hơn 7 ngày
 systemd-analyze blame                             # Thời gian boot của từng service
 systemctl list-timers --all                      # Xem timer (thay cron)
 ```
+
+<details>
+<summary><b>Bấm xem: giải nghĩa systemctl nâng cao — enable vs is-enabled, và systemd-analyze</b></summary>
+
+| Lệnh | Làm gì |
+|---|---|
+| `systemctl list-units --type=service` | Danh sách service **đang tải** (không nhất thiết đang chạy) |
+| `systemctl list-units --state=failed` | ⭐ Chỉ service **đang fail** — dùng để rà soát nhanh cả hệ thống |
+| `systemctl is-active` | Có đang **chạy** không? (trả `active`/`inactive`/`failed`) |
+| `systemctl is-enabled` | ⚠️ Có được **đăng ký tự chạy khi boot** không — **KHÔNG liên quan** đang chạy hay không |
+| `systemctl cat <s>` | In **nội dung file unit** thật, kể cả khi có nhiều file override chồng lên nhau |
+| `systemctl show <s>` | **Mọi property** ở dạng key=value — chi tiết hơn `status` nhiều |
+| `systemctl list-dependencies` | Cây phụ thuộc: service này **cần** những gì để chạy |
+| `systemd-analyze blame` | Thời gian **boot** của từng service, sắp giảm dần |
+
+⭐ **`is-active` vs `is-enabled` — HAI câu hỏi độc lập, đây là mảnh hay bị gộp làm một:**
+
+| | `is-active` | `is-enabled` |
+|---|---|---|
+| Trả lời | *"BÂY GIỜ có đang chạy không?"* | *"Có được CÀI ĐẶT để tự chạy khi boot không?"* |
+| Đổi bằng lệnh | `start` / `stop` | `enable` / `disable` |
+
+⇒ **Bốn tổ hợp có thể xảy ra**, mỗi tổ hợp một tình huống thực tế khác nhau:
+
+| `is-active` | `is-enabled` | Ý nghĩa thực tế |
+|---|---|---|
+| `active` | `enabled` | ✅ Bình thường: đang chạy, sẽ tự chạy lại sau reboot |
+| `active` | `disabled` | ⚠️ Đang chạy NHƯNG **sẽ KHÔNG tự bật lại** sau khi reboot — dễ gây sự cố bất ngờ sau bảo trì |
+| `inactive` | `enabled` | Đã tắt tạm thời (`stop`), nhưng **sẽ tự bật lại** ở lần reboot tới |
+| `failed` | `enabled` | 🛑 Service **crash** khi khởi động, nhưng vẫn được cấu hình tự chạy — sẽ **crash lại** mỗi lần reboot cho tới khi sửa |
+
+🛑 Tổ hợp `active` + `disabled` là bẫy hay gặp nhất: ai đó `systemctl start nginx` (chạy tạm để test) mà **quên `enable`** ⇒ mọi thứ trông ổn cho tới lần **reboot tiếp theo** — service **không tự bật lại**, gây sự cố "tự dưng mất dịch vụ sau khi bảo trì server".
+
+⭐ **`enable --now` — làm cả hai việc trong MỘT lệnh, tránh quên mất một nửa:**
+
+```bash
+systemctl enable --now nginx
+#                 └─ ⭐ vừa ĐĂNG KÝ tự chạy khi boot, VỪA BẬT ngay lập tức
+#                    (thay vì phải gõ 2 lệnh riêng: enable rồi start)
+```
+
+**`systemctl cat` — công cụ điều tra khi "tôi sửa file unit mà hành vi không đổi":**
+
+```bash
+systemctl cat nginx.service
+```
+
+⭐ **Vì sao lệnh này quan trọng hơn tự mở file bằng `cat`/`vi`?** systemd cho phép **nhiều file override chồng lên nhau** (file gốc trong `/usr/lib/systemd/system/`, override trong `/etc/systemd/system/nginx.service.d/override.conf`). `systemctl cat` in ra **ĐÚNG những gì systemd THỰC SỰ dùng sau khi gộp tất cả các lớp** — tự mở một file bằng `vi` có thể chỉ thấy **một phần**, bỏ sót override đang có hiệu lực ở nơi khác.
+
+```bash
+systemctl show nginx --property=Restart,RestartSec,MemoryMax
+#              └─ ⭐ lọc ĐÚNG property cần xem, thay vì cuộn qua hàng trăm dòng của `show` đầy đủ
+```
+
+⚠️ **Nhắc lại mảnh ghép đã nói ở mục Log hệ thống**: sửa file unit xong **BẮT BUỘC** `systemctl daemon-reload` rồi mới `restart` — thiếu bước reload, `cat`/`show` vẫn hiện đúng nội dung file trên đĩa, nhưng **systemd đang chạy trong RAM vẫn dùng bản CŨ** — đây chính là lý do "tôi sửa rồi mà không thấy đổi gì".
+
+**`list-dependencies` — trả lời "service này cần gì mới chạy được":**
+
+```bash
+systemctl list-dependencies nginx
+#                            └─ hiện cây: nginx.service PHỤ THUỘC vào network.target, ...
+systemctl list-dependencies nginx --reverse
+#                                  └─ ⭐ NGƯỢC LẠI: những service NÀO phụ thuộc VÀO nginx
+#                                     (hữu ích để biết dừng nginx sẽ LÀM SẬP THEO những gì)
+```
+
+**`systemd-analyze blame` — tìm service làm CHẬM quá trình boot:**
+
+```bash
+systemd-analyze blame | head -10
+#                        └─ 10 service CHIẾM NHIỀU THỜI GIAN NHẤT khi khởi động máy, sắp giảm dần
+systemd-analyze critical-chain
+#              └─ ⭐ khác blame: hiện CHUỖI phụ thuộc DÀI NHẤT quyết định TỔNG thời gian boot
+#                 (một service chờ 5 lâu không đáng ngại nếu nó KHÔNG nằm trên đường găng của boot)
+```
+
+⚠️ `blame` liệt kê **thời gian riêng lẻ** của từng service, nhưng service chạy **song song** với nhau — thời gian boot tổng không phải tổng cộng dồn của `blame`. `critical-chain` mới cho biết **chuỗi nào thực sự quyết định** tổng thời gian khởi động — đáng tin hơn khi cần tối ưu tốc độ boot thật sự.
+
+</details>
 
 ---
 
