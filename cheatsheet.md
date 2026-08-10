@@ -8171,6 +8171,84 @@ kubectl taint node <node> key:NoSchedule-        # Gỡ taint (thêm dấu - ở
 kubectl get node <node> -o jsonpath='{.spec.taints}'   # Xem taint của node
 ```
 
+<details>
+<summary><b>Bấm xem: giải nghĩa cordon/drain/taint — ba mức độ "cấm node nhận việc"</b></summary>
+
+⭐ **Tiền đề — ba lệnh nghe giống nhau nhưng MỨC ĐỘ can thiệp khác hẳn:**
+
+| Lệnh | Pod ĐANG CHẠY có bị đụng vào? | Pod MỚI có được xếp vào không? | Dùng khi |
+|---|---|---|---|
+| `cordon` | ❌ Không đụng | ❌ **Không** (mềm) | Muốn ngừng nhận thêm việc, nhưng chưa vội đuổi ai |
+| `drain` | ✅ **Đẩy hết ra** (gồm cả cordon) | ❌ Không | Chuẩn bị **bảo trì/tắt node** |
+| `taint` | ❌ Không đụng | ❌ Trừ khi có **toleration** khớp | Chọn lọc *loại* pod nào được/không được vào |
+
+```bash
+kubectl cordon <node>
+#              └─ ⭐ CHỈ đánh dấu "KHÔNG NHẬN pod mới" — pod CŨ vẫn chạy y nguyên, KHÔNG ai bị đuổi
+```
+
+⇒ `cordon` là bước **an toàn, dễ hoàn tác** — muốn kiểm tra "node này có ổn để chuẩn bị bảo trì không" mà chưa muốn làm gián đoạn dịch vụ đang chạy trên đó.
+
+⭐⭐ **`drain` — bóc kỹ vì cờ của nó BẮT BUỘC gần như luôn cần dùng:**
+
+```bash
+kubectl drain <node> --ignore-daemonsets --delete-emptydir-data
+#              │      │                   └─ ⭐ CHO PHÉP xoá pod có dùng emptyDir
+#              │      │                      (data trong emptyDir sẽ MẤT — nhưng đây là Ổ ĐĨA TẠM,
+#              │      │                       vốn dĩ ĐÃ ĐƯỢC THIẾT KẾ để mất khi pod bị xoá, không phải bug)
+#              │      └───────────────────── BỎ QUA DaemonSet (xem giải thích bên dưới)
+#              └──────────────────────────── trước tiên TỰ ĐỘNG cordon node này
+```
+
+🛑 **Thiếu `--ignore-daemonsets` thì `drain` SẼ TỰ ĐỘNG DỪNG LẠI VÀ BÁO LỖI, không tiếp tục được.** Lý do: **DaemonSet** (như `kube-proxy`, `node-exporter`, `fluentd`) được thiết kế để **chạy đúng MỘT bản trên MỖI node**, vĩnh viễn — xoá pod DaemonSet đi thì **controller lập tức tạo lại NGAY LẬP TỨC trên chính node đó** (vì đó là bản chất của DaemonSet). `drain` biết trước điều vô nghĩa này nên **chủ động từ chối** làm, trừ khi bạn xác nhận rõ ràng bằng cờ `--ignore-daemonsets` (nghĩa là: "tôi biết, cứ để nguyên chúng, đừng cố xoá").
+
+⚠️ **`--delete-emptydir-data` KHÔNG phải "xoá data quan trọng"** — `emptyDir` là loại volume **tạm**, theo thiết kế **vốn dĩ biến mất** khi Pod bị xoá dù bằng bất kỳ cách nào (drain hay không). Cờ này chỉ là bước **xác nhận bạn hiểu rõ điều đó**, không phải cảnh báo mất dữ liệu quan trọng thật sự — dữ liệu **cần giữ lại** phải dùng PersistentVolume, không phải `emptyDir`.
+
+**Quy trình bảo trì node chuẩn — thứ tự KHÔNG được đảo:**
+
+```bash
+kubectl drain <node> --ignore-daemonsets --delete-emptydir-data
+#             └─ 1. đẩy hết pod thường sang node khác, node này KHÔNG nhận job mới trong lúc đó
+
+# ... 2. tiến hành bảo trì/vá lỗi/nâng cấp kernel trên node ...
+
+kubectl uncordon <node>
+#              └─ 3. ⭐ BẮT BUỘC làm bước này — drain KHÔNG TỰ ĐỘNG uncordon khi xong việc,
+#                 node sẽ MÃI Ở trạng thái không nhận pod cho tới khi bạn gõ lệnh này
+```
+
+🛑 **Quên `uncordon` là lỗi vận hành RẤT hay gặp** — node đã bảo trì xong, khoẻ mạnh, nhưng **vẫn không nhận pod mới** vì `drain` **không tự động** đưa nó trở lại trạng thái bình thường. Cluster dần "thiếu chỗ" một cách khó hiểu khi có nhiều node bị bỏ quên `uncordon` sau các đợt bảo trì trước.
+
+⭐⭐ **Taint/Toleration — mô hình HOÀN TOÀN NGƯỢC với `nodeSelector`, dễ hiểu nhầm:**
+
+| | `nodeSelector`/`affinity` | Taint + Toleration |
+|---|---|---|
+| Ai chủ động chọn | **Pod chọn** node (Pod nói "tôi MUỐN node có label X") | ⭐ **Node từ chối** pod (Node nói "TAO KHÔNG nhận pod nào, trừ khi nó CHỊU ĐƯỢC cái này") |
+| Mặc định | Pod không cần biết gì cũng chạy vào node bất kỳ | Node có taint thì **MẶC ĐỊNH KHÔNG pod nào vào được**, trừ khi Pod khai báo rõ toleration khớp |
+
+```bash
+kubectl taint node <node> gpu=true:NoSchedule
+#                          │        └─ ⭐ EFFECT: hành động cụ thể khi pod KHÔNG chịu được taint này
+#                          └──────────── key=value của taint (tự đặt tên, tuỳ ý nghĩa bạn muốn)
+```
+
+**Ba loại `effect` — mức độ "cứng rắn" khác nhau:**
+
+| Effect | Pod ĐANG CHẠY (không tolerate) | Pod MỚI (không tolerate) |
+|---|---|---|
+| `NoSchedule` | Giữ nguyên, không bị đuổi | ❌ Không được xếp vào |
+| `PreferNoSchedule` | Giữ nguyên | ⚠️ **Cố tránh nhưng KHÔNG bảo đảm tuyệt đối** (chỉ là gợi ý ưu tiên) |
+| `NoExecute` | 🛑 **BỊ ĐUỔI RA NGAY**, kể cả đang chạy | ❌ Không được xếp vào |
+
+⇒ Ứng dụng thực tế: node có GPU đắt tiền, chỉ muốn dành riêng cho pod AI/ML ⇒ `taint gpu=true:NoSchedule` lên node đó, rồi **chỉ** pod AI/ML mới khai báo `toleration` khớp `gpu=true` trong manifest — pod thường không có toleration này **sẽ không bao giờ** vô tình bị xếp lên node GPU đắt đỏ, tránh lãng phí tài nguyên chuyên dụng.
+
+```bash
+kubectl taint node <node> gpu:NoSchedule-
+#                             └─ ⭐ DẤU TRỪ ở cuối = GỠ taint (quy ước giống hệt gỡ label `env-` đã học)
+```
+
+</details>
+
 ### Autoscaling & Resource
 ```bash
 kubectl autoscale deploy <name> --min=2 --max=10 --cpu-percent=80   # Tạo HPA
@@ -8180,6 +8258,76 @@ kubectl get resourcequota -n <ns>      # Giới hạn tài nguyên namespace
 kubectl describe limitrange -n <ns>    # Giới hạn mặc định cho pod
 kubectl get pods -o custom-columns='NAME:.metadata.name,CPU:.spec.containers[*].resources.requests.cpu,MEM:.spec.containers[*].resources.requests.memory'   # Xem request tài nguyên
 ```
+
+<details>
+<summary><b>Bấm xem: giải nghĩa HPA — requests/limits và vì sao "current" đứng im</b></summary>
+
+⭐ **Tiền đề bắt buộc — HPA scale dựa trên `requests`, KHÔNG dựa trên `limits`, và cũng KHÔNG dựa trên RAM/CPU thật của node:**
+
+```bash
+kubectl autoscale deploy myapp --min=2 --max=10 --cpu-percent=80
+#                        │      │       │        └─ ⭐ 80% của REQUESTS đã khai báo trong manifest,
+#                        │      │       │           KHÔNG PHẢI 80% CPU của cả NODE VẬT LÝ
+#                        │      │       └────────── giới hạn TRÊN: KHÔNG BAO GIỜ scale vượt quá 10 pod
+#                        │      └────────────────── giới hạn DƯỚI: KHÔNG BAO GIỜ scale dưới 2 pod
+#                        └───────────────────────── deployment cần autoscale
+```
+
+⇒ **Công thức HPA thực sự tính**: `(tổng CPU đang dùng của mọi pod) / (tổng CPU REQUESTS đã khai báo) × 100`, rồi so với ngưỡng `--cpu-percent`. Deployment **CHƯA khai báo `resources.requests.cpu`** trong manifest ⇒ HPA **KHÔNG có mẫu số để tính** ⇒ báo lỗi `missing request for cpu` hoặc hiện `<unknown>` mãi mãi ở cột TARGETS — không phải HPA hỏng, mà là **thiếu tiền đề bắt buộc**.
+
+```bash
+kubectl get hpa
+# NAME   REFERENCE          TARGETS         MINPODS   MAXPODS   REPLICAS
+# myapp  Deployment/myapp   45%/80%         2         10        3
+#                            │   └─ ngưỡng bạn đặt
+#                            └───── % CPU HIỆN TẠI so với requests -- đang DƯỚI ngưỡng nên KHÔNG scale thêm
+```
+
+⚠️ **`TARGETS` hiện `<unknown>/80%`** — hai nguyên nhân hay gặp nhất: (1) thiếu `resources.requests` như nói trên; (2) **chưa cài `metrics-server`** trong cluster (đã nhắc ở mục `kubectl top` phía trên — HPA và `top` đều dựa vào cùng nguồn dữ liệu này).
+
+⭐ **`describe hpa` — bắt buộc đọc khi HPA "đứng im không chịu scale":**
+
+```bash
+kubectl describe hpa myapp
+#                    └─ mục "Conditions" ở cuối = LÝ DO CHI TIẾT (giống tinh thần describe pod)
+#                       ví dụ: "the HPA target's average utilization is unknown"
+```
+
+🛑 **HPA có cơ chế "làm nguội" (cooldown/stabilization) TỰ ĐỘNG — không phải bị treo:**
+
+Mặc định, HPA **KHÔNG scale down NGAY** khi tải giảm đột ngột — nó chờ khoảng **5 phút ổn định** trước khi giảm số pod, để tránh hiện tượng **"thrashing"** (tăng-giảm liên tục theo từng đợt tải dao động ngắn, gây lãng phí công sức tạo/xoá pod liên tục và có thể làm gián đoạn dịch vụ). Thấy tải đã giảm mà HPA "chưa chịu scale down ngay" là **hành vi ĐÚNG THIẾT KẾ**, không phải lỗi cần sửa.
+
+**`resourcequota` và `limitrange` — hai tầng giới hạn KHÁC NHAU, dễ nhầm phạm vi áp dụng:**
+
+| | ResourceQuota | LimitRange |
+|---|---|---|
+| Giới hạn | **TOÀN namespace** cộng dồn | **TỪNG pod/container** riêng lẻ |
+| Ví dụ | "Cả namespace `ai-hub` tối đa dùng 50 CPU" | "Mỗi container tối đa 2 CPU, nếu không khai báo thì mặc định 500m" |
+
+```bash
+kubectl get resourcequota -n ai-hub
+#                          └─ TỔNG giới hạn của CẢ namespace — vượt qua thì Pod MỚI KHÔNG TẠO ĐƯỢC,
+#                             dù từng pod riêng lẻ có vẻ nhỏ
+
+kubectl describe limitrange -n ai-hub
+#                            └─ giá trị MẶC ĐỊNH áp cho container KHÔNG tự khai báo resources
+#                               (giải thích vì sao một Pod "không ghi gì về resources" vẫn có requests/limits)
+```
+
+⇒ Pod tạo lỗi `exceeded quota` mà **từng container trông rất nhỏ** ⇒ kiểm tra `resourcequota` — có thể **namespace đã CỘNG DỒN chạm giới hạn tổng**, không phải pod này riêng lẻ có vấn đề gì.
+
+**Xem nhanh CPU/RAM request của mọi pod — công thức `custom-columns` đáng nhớ:**
+
+```bash
+kubectl get pods -o custom-columns='NAME:.metadata.name,CPU:.spec.containers[*].resources.requests.cpu,MEM:.spec.containers[*].resources.requests.memory'
+#                                    │                     │                                              └─ tương tự cho memory
+#                                    │                     └─ đường dẫn JSONPath (đã học ở mục Xem resource của kubectl phía trên)
+#                                    └─ đặt TÊN CỘT tự do
+```
+
+⚠️ Cột kết quả **trống** cho một pod = container đó **chưa khai báo `requests`** trong manifest — chính là nguồn gốc tiềm ẩn của lỗi HPA `<unknown>` đã nói ở trên, nếu Deployment đó nằm trong phạm vi autoscale.
+
+</details>
 
 ### Troubleshoot pod không chạy được
 ```bash
@@ -8199,6 +8347,66 @@ kubectl rollout status deploy <name>   # Xem rollout có kẹt không
 kubectl get pods --field-selector status.phase=Running   # Lọc theo trạng thái
 ```
 
+<details>
+<summary><b>Bấm xem: bảng tra nhanh 5 trạng thái pod lỗi — đã tổng hợp gọn từ các mục trước</b></summary>
+
+⭐ Mục này **gom lại** những gì đã giải thích rải rác ở các mục `Debug & Log` và `Troubleshoot Docker/Kubernetes` phía trên, thành **một bảng tra cứu nhanh** khi gặp pod lỗi — không lặp lại chi tiết, chỉ trỏ đúng hướng điều tra.
+
+```bash
+kubectl get pod <pod> -o wide
+#                       └─ ⭐ luôn xem CỘT NODE trước — biết pod nằm ở đâu để SSH vào điều tra sâu
+#                          nếu cần dùng tới crictl (đã học ở mục container runtime phía trên)
+```
+
+**Bảng chẩn đoán nhanh — 5 nguyên nhân hàng đầu, đi kèm lệnh kiểm chứng ĐÚNG cho từng ca:**
+
+| Trạng thái | Ý nghĩa | Lệnh kiểm chứng | Nguyên nhân thường gặp |
+|---|---|---|---|
+| `Pending` | Chưa được **xếp lên node nào cả** | `describe pod` → mục Events | Thiếu CPU/RAM (đã học ở Autoscaling) · taint không khớp toleration (đã học ở Bảo trì node) · PVC chưa `Bound` |
+| `ImagePullBackOff` | Kéo image thất bại | `describe pod` → dòng `Failed to pull image` | Sai tên/tag · thiếu `imagePullSecret` · **registry nội bộ không có mạng ra được** (đặc biệt trên VDI air-gapped) |
+| `CrashLoopBackOff` | App khởi động rồi tự crash, lặp lại | `logs --previous` (đã học kỹ ở mục Debug & Log) | Lỗi code, thiếu biến môi trường, dependency (DB) chưa sẵn sàng |
+| `OOMKilled` | Vượt `resources.limits.memory` | `describe pod` → `Last State: Terminated, Reason: OOMKilled` | Limit đặt quá thấp, hoặc app thật sự leak memory |
+| `Evicted` | Node **tự đuổi** pod ra vì thiếu tài nguyên | `describe node <node>` → mục Conditions | `DiskPressure`/`MemoryPressure` — **node**, không phải pod, đang gặp vấn đề |
+
+⭐ **`Pending` do PVC chưa `Bound` — chuỗi kiểm tra cần đi qua đúng thứ tự:**
+
+```bash
+kubectl get pvc -n ai-hub                    # PVC có STATUS = Bound chưa, hay đang Pending?
+kubectl describe pvc <pvc-name> -n ai-hub    # Events ở đây nói LÝ DO: thiếu StorageClass? Provisioner lỗi?
+kubectl get storageclass                      # StorageClass mà PVC yêu cầu CÓ TỒN TẠI không?
+```
+
+⚠️ **`Evicted` — dễ nhầm với lỗi của CHÍNH pod đó, nhưng thực chất là vấn đề của NODE.** Pod bị Evicted **không phải vì code app tệ** — node nó đang chạy **hết đĩa hoặc hết RAM tổng thể**, kubelet chủ động đuổi pod đi để **cứu node khỏi sập hoàn toàn**. Sửa code app không giải quyết được ca này — phải xử lý ở tầng **node** (dọn đĩa, giảm tải, hoặc thêm node).
+
+```bash
+kubectl describe node <node> | grep -A 5 Conditions
+#                                        └─ ⭐ tìm dòng DiskPressure=True hoặc MemoryPressure=True
+#                                           -> XÁC NHẬN đây là vấn đề CỦA NODE, không phải của pod
+```
+
+**Lọc events CHỈ CỦA một pod — thu hẹp khỏi biển events toàn cluster:**
+
+```bash
+kubectl get events --field-selector involvedObject.name=<pod> --sort-by=.lastTimestamp
+#                   └─ ⭐ lọc CHÍNH XÁC theo tên object, tránh phải dò trong events TOÀN NAMESPACE
+#                      (nhắc lại: events chỉ sống ~1 giờ mặc định — đã cảnh báo ở mục Xem resource phía trên)
+```
+
+**Lọc pod theo trạng thái cụ thể — dùng để rà soát nhanh cả cluster:**
+
+```bash
+kubectl get pods --field-selector status.phase=Running    # chỉ pod ĐANG chạy khoẻ
+kubectl get pods -A --field-selector status.phase!=Running,status.phase!=Succeeded
+#                                    └─ ⭐ dấu != để LOẠI TRỪ hai trạng thái BÌNH THƯỜNG,
+#                                       CHỈ còn lại pod ĐANG CÓ VẤN ĐỀ — tương tự tinh thần
+#                                       lệnh awk lọc pod đã học ở mục Troubleshoot Docker/K8s phía trên,
+#                                       nhưng dùng ĐÚNG API server để lọc thay vì lọc bằng text ở client
+```
+
+⇒ So với cách lọc bằng `grep -vE 'Running|Completed'` đã học trước đó, `--field-selector` lọc **ngay tại API server** — chính xác hơn (dựa vào trường dữ liệu thật, không phải khớp chữ trên output) và **nhanh hơn** với cluster lớn (không phải kéo hết dữ liệu về rồi mới lọc bằng tay ở client).
+
+</details>
+
 ### Bảo mật & phân quyền (RBAC)
 ```bash
 kubectl auth can-i create pods         # Kiểm tra quyền của mình
@@ -8207,6 +8415,75 @@ kubectl get roles,rolebindings -n <ns> # Xem role trong namespace
 kubectl get clusterroles               # Role toàn cluster
 kubectl get serviceaccount -n <ns>     # Service account
 ```
+
+<details>
+<summary><b>Bấm xem: giải nghĩa RBAC — auth can-i và bốn khối cần phân biệt</b></summary>
+
+⭐ **Tiền đề — bốn khối RBAC, phải phân biệt để đọc đúng resource:**
+
+| Khối | Trả lời | Phạm vi |
+|---|---|---|
+| **Role** | *"Được làm những GÌ?"* | Chỉ trong **MỘT namespace** |
+| **ClusterRole** | *"Được làm những GÌ?"* | **Toàn cluster** (hoặc dùng lại cho nhiều namespace) |
+| **RoleBinding** | *"AI được gán quyền đó?"* | Gán Role/ClusterRole cho user/group **trong MỘT namespace** |
+| **ClusterRoleBinding** | *"AI được gán quyền đó?"* | Gán ClusterRole cho user/group **TOÀN CLUSTER** |
+
+⇒ **Role/ClusterRole định nghĩa "được làm gì"; RoleBinding/ClusterRoleBinding quyết định "ai" nhận quyền đó.** Có Role mà **không có RoleBinding nào trỏ tới nó** thì Role đó **vô dụng** — không ai thực sự có quyền này cả, dù nó tồn tại trong cluster.
+
+⭐⭐ **`kubectl auth can-i` — công cụ TRẢ LỜI TRỰC TIẾP câu hỏi quyền hạn, thay vì phải tự đọc suy ra từ Role/RoleBinding:**
+
+```bash
+kubectl auth can-i create pods
+#             │      └─ verb (hành động): get, list, create, delete, update, patch...
+#             └────── hỏi cho CHÍNH TÀI KHOẢN đang đăng nhập (kubectl context hiện tại)
+# => trả lời NGAY: "yes" hoặc "no" — KHÔNG cần tự đọc RBAC YAML rồi suy luận thủ công
+```
+
+⚠️ Mặc định `can-i` hỏi trong **namespace hiện tại** của context — kiểm tra quyền ở namespace khác phải chỉ định rõ:
+
+```bash
+kubectl auth can-i delete deployments -n prod
+#                                     └─ ⭐ BẮT BUỘC chỉ rõ namespace nếu KHÁC namespace mặc định đang dùng,
+#                                        thiếu -n dễ kiểm tra NHẦM namespace, tưởng "có quyền" nhưng
+#                                        thực ra chỉ có quyền ở namespace mình đang đứng
+```
+
+⭐ **`--as` — kiểm tra quyền của NGƯỜI KHÁC, không phải chính mình đang đăng nhập là ai:**
+
+```bash
+kubectl auth can-i '*' '*' --as deployer@company.vn
+#                    │  │   └─ ⭐ GIẢ LẬP là user này (cần CHÍNH BẠN có quyền impersonate mới chạy được)
+#                    │  └────── resource: '*' = MỌI loại resource
+#                    └───────── verb: '*' = MỌI hành động
+#  => kiểm tra user "deployer" có phải SUPERUSER (toàn quyền) trong phạm vi đang xét không
+```
+
+⚠️ **Lệnh `--as` chỉ chạy được nếu CHÍNH TÀI KHOẢN ĐANG DÙNG có quyền `impersonate`** — nếu không, lệnh sẽ báo lỗi từ chối, đây là **thiết kế bảo mật cố ý**: không phải ai cũng được phép "giả danh" người khác để dò quyền của họ.
+
+**Xem role đang có trong một namespace — để tự đọc thay vì chỉ hỏi `can-i` từng câu một:**
+
+```bash
+kubectl get roles,rolebindings -n ai-hub
+#                                └─ ⭐ xem CẢ HAI cùng lúc — Role một mình không nói lên "ai" có quyền đó
+
+kubectl describe rolebinding <name> -n ai-hub
+#                              └─ mục "Subjects" = AI (user/group/ServiceAccount) được gán
+#                                 mục "Role" ở trên = Role NÀO được gán cho họ
+```
+
+⚠️ **RoleBinding có thể trỏ tới một ClusterRole** (không nhất thiết phải trỏ Role cùng namespace) — đây là kỹ thuật hay dùng: định nghĩa **một** ClusterRole chung ("chỉ đọc" chẳng hạn), rồi **RoleBinding riêng ở từng namespace** để giới hạn phạm vi áp dụng — tái sử dụng định nghĩa quyền mà không phải viết lại Role cho từng namespace.
+
+**ServiceAccount — "danh tính" của Pod, KHÁC với user thật của con người:**
+
+```bash
+kubectl get serviceaccount -n ai-hub
+#                            └─ ⭐ đây là DANH TÍNH mà chính CÁC POD dùng để gọi API server,
+#                                 KHÔNG PHẢI tài khoản của người dùng như bạn (kiennv) đang gõ kubectl
+```
+
+⇒ Mỗi Pod, nếu không chỉ định `serviceAccountName` rõ ràng trong manifest, sẽ tự động dùng ServiceAccount **`default`** của namespace đó — ServiceAccount này thường **có rất ít quyền theo mặc định** (đúng nguyên tắc *least privilege* — chỉ cấp quyền tối thiểu cần thiết). App bên trong Pod cần **tự gọi API K8s** (ví dụ Operator, controller tuỳ chỉnh) thì phải được gán **RoleBinding riêng, quyền vừa đủ cho việc nó làm** — không nên gán `cluster-admin` cho tiện, vì đó chính là cấp toàn quyền cluster cho một đoạn code chạy trong Pod, rủi ro bảo mật rất lớn nếu Pod đó bị chiếm quyền.
+
+</details>
 
 ---
 
@@ -8237,6 +8514,96 @@ curl -w "@curl-format.txt" -o /dev/null -s http://localhost:8080/
 for i in $(seq 1 100); do curl -s -o /dev/null -w "%{http_code} %{time_total}s\n" http://localhost:8080/; done
 ```
 
+<details>
+<summary><b>Bấm xem: giải nghĩa ab/hey/wrk/k6 — và cách đọc kết quả latency phân phối</b></summary>
+
+⭐ **Tiền đề — bốn công cụ cùng mục đích nhưng KHÁC MỨC ĐỘ phức tạp, chọn theo nhu cầu:**
+
+| Công cụ | Độ phức tạp | Viết kịch bản được? | Hợp cho |
+|---|---|---|---|
+| `ab` (Apache Bench) | Đơn giản nhất | ❌ Không — chỉ gọi 1 URL lặp lại | Test nhanh, thô sơ |
+| `hey` | Đơn giản | ❌ Không | Thay thế `ab` hiện đại hơn |
+| `wrk` | Trung bình | ⚠️ Có (Lua script), nhưng ít người dùng tới | Cần **hiệu năng cao**, đo chi tiết |
+| `k6` | ⭐ Cao nhất | ✅ **JavaScript đầy đủ** — kịch bản nhiều bước, có điều kiện | Test **luồng nghiệp vụ thật** (login → gọi API → logout) |
+
+```bash
+ab -n 1000 -c 50 http://localhost:8080/
+#     │      └─ c = concurrency: 50 request BẮN CÙNG LÚC tại mọi thời điểm
+#     └──────── n = number: TỔNG CỘNG 1000 request rồi dừng
+```
+
+⚠️ **`ab` chỉ gọi được ĐÚNG MỘT URL cố định, lặp lại y hệt** — không mô phỏng được một người dùng thật đi qua **nhiều bước** (đăng nhập → xem trang → đặt hàng). Kết quả từ `ab` chỉ phản ánh khả năng chịu tải của **một endpoint đơn lẻ**, không phải cả luồng nghiệp vụ.
+
+```bash
+hey -z 30s -c 20 http://localhost:8080/
+#     │     └─ 20 kết nối đồng thời
+#     └────── ⭐ z = ZAMOUNT thời gian: chạy trong 30 GIÂY rồi TỰ DỪNG
+#             (khác -n của ab: không chốt trước SỐ LƯỢNG request, mà chốt THỜI GIAN chạy)
+```
+
+⭐ **`wrk` — công cụ cho tải CAO, kiến trúc khác hẳn `ab`/`hey`:**
+
+```bash
+wrk -t4 -c100 -d30s --latency http://localhost:8080/
+#     │   │     │     └─ ⭐ BẮT BUỘC thêm cờ này mới có PHÂN PHỐI latency chi tiết (p50/p90/p99)
+#     │   │     │        (không có --latency, wrk CHỈ in trung bình — kém hữu ích hơn nhiều)
+#     │   │     └──────── d = duration: chạy trong 30 giây
+#     │   └────────────── c = connections: 100 kết nối GIỮ MỞ xuyên suốt (khác "request đồng thời" của ab)
+#     └────────────────── t = threads: dùng 4 LUỒNG HỆ ĐIỀU HÀNH để tạo tải
+#                         (đa luồng thật -> wrk TẠO ĐƯỢC TẢI CAO HƠN ab/hey nhiều lần trên cùng một máy)
+```
+
+🛑 **`-t` (threads) không nên đặt CAO HƠN số CPU core thật của MÁY CHẠY TEST.** Đặt `-t16` trên máy chỉ có 4 core khiến các luồng **tranh giành CPU lẫn nhau** — kết quả đo được phản ánh **giới hạn của MÁY TEST**, không phải giới hạn thật của **server đang được test**. Luôn `nproc` trước để biết số core khả dụng.
+
+⭐⭐ **`--latency` — vì sao BẮT BUỘC, liên hệ trực tiếp tới khái niệm p95 đã học ở mục PromQL:**
+
+Không có `--latency`, `wrk` chỉ in **trung bình cộng** — con số này **che giấu** các request outlier chậm, y hệt vấn đề đã giải thích ở mục Prometheus (*p95 vs trung bình*). Có `--latency`, kết quả hiện đầy đủ phân phối:
+
+```
+Latency Distribution
+     50%  120ms      <- ⭐ MỘT NỬA request nhanh hơn số này
+     75%  180ms
+     90%  350ms
+     99%  1200ms     <- ⭐⭐ 1% request CHẬM tới mức này — thường bị BỎ QUA nếu chỉ nhìn trung bình
+```
+
+⇒ **Đọc đúng cách**: một hệ thống có `avg = 150ms` nghe có vẻ ổn, nhưng nếu `p99 = 1200ms` thì **cứ 100 người dùng có 1 người chờ hơn 1 giây** — đây chính là trải nghiệm thực tế của **một bộ phận người dùng thật**, không phải "số ít không đáng kể" như trực giác thường nghĩ khi chỉ nhìn số trung bình.
+
+⭐⭐ **`k6` — công cụ mạnh nhất, VÌ mô phỏng được HÀNH VI người dùng thật bằng code:**
+
+```bash
+k6 run --vus 50 --duration 30s script.js
+#          │      └─ 30 giây
+#          └──────── ⭐ vus = Virtual Users: 50 "người dùng ảo" chạy SONG SONG,
+#                    MỖI người LẶP LẠI TOÀN BỘ kịch bản trong script.js
+#                    (KHÁC hẳn -c của ab/wrk: đó chỉ là SỐ KẾT NỐI TCP thô,
+#                     còn "VU" ở đây là một LUỒNG KỊCH BẢN hoàn chỉnh, nhiều bước)
+```
+
+⇒ Script `.js` của k6 viết được **luồng nghiệp vụ nhiều bước** (login lấy token → dùng token gọi API → kiểm tra response đúng không), có `sleep()` mô phỏng người dùng thật **suy nghĩ giữa các thao tác**, và có `check()` để **validate** response — thứ mà `ab`/`hey`/`wrk` hoàn toàn không làm được vì chúng chỉ gọi lặp một URL tĩnh.
+
+**Test nhanh không cần cài công cụ chuyên dụng — dùng ngay `curl` sẵn có:**
+
+```bash
+for i in $(seq 1 100); do curl -s -o /dev/null -w "%{http_code} %{time_total}s\n" http://localhost:8080/; done
+#          └─ ⭐ vòng lặp shell TUẦN TỰ (KHÔNG đồng thời!) — chỉ hợp để test NHANH, không thay được
+#                công cụ chuyên dụng khi cần đo TẢI ĐỒNG THỜI thật sự
+```
+
+⚠️ **Vòng lặp `for` bằng `curl` là TUẦN TỰ** — mỗi request đợi request trước xong mới gửi tiếp, **hoàn toàn KHÔNG mô phỏng được nhiều người dùng ĐỒNG THỜI**. Chỉ dùng cách này để kiểm tra nhanh "endpoint có phản hồi đúng và ổn định theo thời gian không", không dùng để đo khả năng chịu tải thật.
+
+**`siege` — công cụ bền bỉ, đo khả năng chịu tải KÉO DÀI:**
+
+```bash
+siege -c 50 -t 1M http://localhost:8080/
+#         │   └─ t = time: chạy TRONG 1 phút (M = minute)
+#         └───── c = concurrent: 50 người dùng đồng thời
+```
+
+⚠️ Trước khi chạy bất kỳ load test nào (kể cả `ab` nhỏ), **luôn thông báo/xin phép** nếu target là hệ thống **không phải của mình quản lý hoàn toàn** — traffic tải cao không được báo trước có thể bị hệ thống giám sát bảo mật ghi nhận là **tấn công DoS**, và gây ảnh hưởng thật tới người dùng thật đang dùng hệ thống đó cùng lúc.
+
+</details>
+
 ---
 
 ## 🖥️ tmux & screen (giữ session)
@@ -8259,6 +8626,74 @@ tmux kill-session -t <name>            # Xóa session
 #   Ctrl+b [   -> chế độ cuộn (q để thoát)
 ```
 
+<details>
+<summary><b>Bấm xem: giải nghĩa tmux — vì sao cần nó khi SSH qua VPN/VDI hay rớt mạng</b></summary>
+
+⭐ **Tiền đề — bài toán gốc `tmux` giải quyết:** SSH là một **kết nối mạng**. Mạng rớt (VPN chập chờn, VDI đóng cửa sổ, laptop ngủ) ⇒ **shell trên server bị SIGHUP** (tín hiệu "đầu dây bên kia đã cúp") ⇒ **mọi tiến trình đang chạy trong phiên SSH đó bị giết theo**, kể cả một deploy/migration/backup đang chạy dở giữa chừng.
+
+`tmux` giải quyết bằng cách: tạo ra một **"phiên" (session) sống ĐỘC LẬP trên server**, không phụ thuộc vào kết nối SSH. Mất kết nối SSH chỉ làm bạn **rời khỏi** phiên đó (detach) — tiến trình bên trong **vẫn tiếp tục chạy trên server**, gắn lại (attach) sau vẫn thấy y nguyên như chưa hề rời đi.
+
+| Lệnh/phím | Làm gì |
+|---|---|
+| `tmux` | Tạo session **mới, tên tự sinh số** |
+| `tmux new -s <name>` | ⭐ Tạo session có **tên** — nên dùng, để dễ nhận ra sau này |
+| `tmux ls` | Liệt kê session **đang tồn tại trên server này** |
+| `tmux attach -t <name>` | ⭐ Gắn LẠI vào session đã có (sau khi rớt mạng, hoặc SSH lại từ máy khác) |
+| `tmux kill-session -t <name>` | Xoá hẳn session |
+
+⭐⭐ **Prefix key — khái niệm PHẢI hiểu trước khi nhớ bất kỳ phím tắt nào:**
+
+Mọi phím tắt tmux đều theo mẫu: **bấm Prefix (mặc định `Ctrl+b`) → THẢ RA → rồi mới bấm phím tiếp theo.** Đây **không phải** tổ hợp giữ cùng lúc như `Ctrl+C` — nhầm lẫn này khiến người mới bấm sai liên tục.
+
+```
+Ctrl+b   rồi THẢ   rồi   d
+ └─ Prefix           └─ phím lệnh THỰC SỰ (ở đây là "detach")
+```
+
+| Tổ hợp (Prefix rồi thả rồi bấm) | Làm gì |
+|---|---|
+| `d` | ⭐⭐ **detach** — RỜI session, session VẪN CHẠY NỀN trên server |
+| `c` | Tạo **c**ửa sổ (window) mới trong cùng session |
+| `n` / `p` | Chuyển sang window **n**ext / **p**revious |
+| `%` | Chia **dọc** thành 2 pane |
+| `"` | Chia **ngang** thành 2 pane |
+| `<mũi tên>` | Di chuyển giữa các pane |
+| `[` | Vào chế độ **cuộn** xem lại log cũ (`q` để thoát chế độ này) |
+
+⭐⭐⭐ **Kịch bản thực tế — kịch bản KINH ĐIỂN mà `tmux` được sinh ra để giải quyết:**
+
+```bash
+ssh deployer@prod-server
+tmux new -s deploy-migration
+#          └─ ĐẶT TÊN RÕ RÀNG — dễ nhận ra session này DÙNG ĐỂ LÀM GÌ khi quay lại sau
+
+./run-migration.sh    # chạy migration MẤT 40 PHÚT
+
+# --- Prefix (Ctrl+b) rồi thả rồi bấm "d" -> RỜI session ---
+# (Bây giờ có thể TẮT MÁY, đóng laptop, VDI rớt mạng — KHÔNG SAO CẢ)
+
+# ... sau đó, dù từ MÁY KHÁC hoặc SAU KHI rớt mạng ...
+ssh deployer@prod-server
+tmux attach -t deploy-migration
+#            └─ ⭐ GẮN LẠI, thấy NGUYÊN VẸN output của migration, y hệt chưa từng rời đi
+```
+
+⇒ Đây chính là lý do `tmux` được liệt vào nhóm công cụ **BẮT BUỘC** cho công việc "chạy lệnh dài qua SSH mà không sợ mất khi rớt mạng" — đặc biệt phù hợp với **môi trường VDI** (hay bị đóng session, mất kết nối khi mạng công ty chập chờn) đã nhắc trong hồ sơ công việc.
+
+⚠️ **`Ctrl+C` bên trong tmux vẫn hoạt động BÌNH THƯỜNG** như ngoài tmux — nó **dừng đúng tiến trình đang chạy** trong pane đó, KHÔNG liên quan gì tới việc detach/attach session. Đừng nhầm `Ctrl+C` với prefix `Ctrl+b`.
+
+⚠️ **`tmux kill-session` xoá VĨNH VIỄN** session và mọi tiến trình con bên trong nó (gửi SIGHUP cho toàn bộ) — khác hẳn `detach` (`d`), vốn **giữ nguyên mọi thứ chạy nền**. Nhầm hai lệnh này là mất tiến trình đang chạy dở mà không có cách cứu.
+
+**Đổi phím Prefix mặc định** (nếu `Ctrl+b` xung đột với phím tắt khác đang quen dùng):
+
+```bash
+# thêm vào ~/.tmux.conf:
+set -g prefix C-a
+#              └─ đổi Prefix thành Ctrl+a (thường gặp ở người quen dùng screen — xem mục dưới)
+```
+
+</details>
+
 ### screen (có sẵn trên nhiều server)
 ```bash
 screen                                 # Tạo session
@@ -8271,6 +8706,69 @@ screen -r <name>                       # Gắn lại
 nohup ./long-task.sh > out.log 2>&1 &  # Chạy nền, ghi log ra file
 disown                                 # Gỡ khỏi shell hiện tại
 ```
+
+<details>
+<summary><b>Bấm xem: giải nghĩa screen — và khi nào buộc phải dùng nó thay tmux</b></summary>
+
+⭐ **Tiền đề — cùng mục đích với `tmux` (đã giải thích chi tiết ở mục trên: giữ tiến trình sống qua mất kết nối SSH), nhưng LÝ DO tồn tại của `screen` là khả năng SẴN CÓ:**
+
+`screen` là công cụ **cũ hơn nhiều, gần như luôn có sẵn** trên hệ thống Linux tối giản (nhiều bản distro tối thiểu cài `screen` mặc định, trong khi `tmux` thường phải cài thêm). Trên server production **hạn chế cài đặt** (không có Internet ra ngoài, chính sách công ty siết chặt phần mềm cài thêm — rất khớp với môi trường VDI/air-gapped), `screen` có thể là **lựa chọn DUY NHẤT sẵn có** khi cần giữ tiến trình sống qua mất kết nối.
+
+```bash
+which screen tmux
+# thường: /usr/bin/screen có sẵn ngay từ đầu; tmux có thể báo "not found" nếu chưa cài
+```
+
+| screen | tmux (tương đương) | Làm gì |
+|---|---|---|
+| `screen` | `tmux` | Tạo session mới, tên tự sinh |
+| `screen -S <name>` | `tmux new -s <name>` | ⭐ Tạo session có tên |
+| `screen -ls` | `tmux ls` | Liệt kê session |
+| `screen -r <name>` | `tmux attach -t <name>` | Gắn lại vào session |
+| `screen -d -r <name>` | — | ⭐ **Ép** gắn lại, TỰ ĐỘNG rời phiên khác đang giữ session này |
+
+⭐ **Prefix của `screen` — cùng KHÁI NIỆM "bấm rồi thả rồi bấm tiếp" như `tmux`, chỉ khác PHÍM MẶC ĐỊNH:**
+
+| Prefix mặc định | | |
+|---|---|---|
+| `screen` | `Ctrl+a` | (⚠️ khác `tmux`: `Ctrl+b`) |
+
+```
+Ctrl+a   rồi THẢ   rồi   d      <- detach, session VẪN CHẠY NỀN (giống hệt tinh thần tmux)
+Ctrl+a   rồi THẢ   rồi   c      <- cửa sổ mới
+Ctrl+a   rồi THẢ   rồi   n      <- cửa sổ tiếp theo
+```
+
+🛑 **Bẫy hay gặp nhất khi chuyển đổi qua lại giữa hai công cụ**: quen tay `tmux` (`Ctrl+b`) rồi gõ nhầm sang máy đang chạy `screen` — bấm `Ctrl+b` **không có tác dụng gì** trong `screen` (nó chờ `Ctrl+a`). Luôn kiểm tra **đang ở công cụ nào** trước khi bấm phím tắt theo phản xạ.
+
+⭐⭐ **`screen -d -r` — cứu tinh cho tình huống "session đã bị giữ ở một chỗ khác":**
+
+🛑 **Vấn đề hay gặp**: mất kết nối mạng đột ngột (không kịp `detach` tử tế) rồi SSH lại ⇒ `screen -r <name>` báo lỗi **`There is a screen on... (Attached)`** — vì hệ thống vẫn tưởng session đó **đang được một nơi khác giữ** (dù kết nối cũ đã chết từ lâu, chỉ là chưa kịp dọn dẹp trạng thái).
+
+```bash
+screen -d -r deploy-migration
+#       │  └─ r = resume: gắn lại vào session
+#       └──── ⭐ d = detach TRƯỚC (ép rời phiên CŨ đang "giữ chỗ" một cách ma quái),
+#              RỒI MỚI gắn lại — giải quyết dứt điểm lỗi "Attached" ở trên
+```
+
+⇒ Đây chính là lệnh **thực dụng nhất** cần nhớ khi làm việc với `screen` qua đường mạng không ổn định — kịch bản khớp chính xác với đặc thù **VDI hay rớt kết nối** trong môi trường làm việc thực tế.
+
+**Thay thế khi không có cả `tmux` lẫn `screen`** — dùng `nohup` (giải pháp đơn giản hơn, KHÔNG cho attach lại xem output realtime):
+
+```bash
+nohup ./long-task.sh > out.log 2>&1 &
+#     │                │          └─ đẩy tiến trình xuống CHẠY NỀN trong shell hiện tại
+#     │                └──────────── gộp CẢ lỗi (stderr) vào cùng file log
+#     └───────────────────────────── ⭐ "no hang up": tiến trình KHÔNG bị giết dù shell cha bị SIGHUP
+disown
+#     └─ ⭐ NGẮT liên kết tiến trình khỏi shell hiện tại — kể cả GÕ "exit" thoát SSH,
+#          tiến trình vẫn tiếp tục sống (không có disown, một số shell VẪN gửi SIGHUP cho job nền khi thoát)
+```
+
+⚠️ **`nohup` + `disown` KHÁC CĂN BẢN so với `tmux`/`screen` ở một điểm quan trọng**: sau khi thoát SSH, bạn **KHÔNG THỂ** quay lại xem **output realtime** đang chạy — chỉ có thể đọc file `out.log` **sau khi ghi ra**, không có trải nghiệm "gắn lại và thấy màn hình y hệt lúc rời đi" như `tmux attach`/`screen -r`. Đây là lý do `tmux`/`screen` vẫn được ưu tiên khi có thể cài đặt — `nohup` chỉ là phương án dự phòng cuối cùng.
+
+</details>
 
 ---
 
