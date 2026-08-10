@@ -8788,12 +8788,146 @@ tcpdump -i any 'tcp[tcpflags] & tcp-syn != 0'   # Chỉ gói SYN (debug bắt ta
 tcpdump -c 100 -i any port 53           # Bắt 100 gói DNS rồi dừng
 ```
 
+<details>
+<summary><b>Bấm xem: giải nghĩa tcpdump — filter expression và vì sao cần -nn</b></summary>
+
+⭐ **Tiền đề — `tcpdump` khác mọi công cụ đã học ở đâu?** Các lệnh trước (`ss`, `curl`, `nc`) chỉ cho biết **kết quả cuối cùng** (thông/không thông, mã HTTP...). `tcpdump` bắt **TỪNG GÓI TIN THẬT** đi qua card mạng — công cụ **tận gốc nhất**, dùng khi mọi lệnh khác đã cạn ý mà vẫn chưa rõ chuyện gì đang xảy ra trên dây mạng.
+
+| Cờ | Viết tắt của | Làm gì |
+|---|---|---|
+| `-i` | **i**nterface | Card mạng cần bắt (`any` = mọi card) |
+| `-n` | **n**umeric | Không tra tên **host** ngược từ IP |
+| `-nn` | | ⭐ Như `-n` **CỘNG THÊM** không tra tên **port** (giữ nguyên số, ví dụ `80` thay vì `http`) |
+| `-w` | **w**rite | Ghi ra **file** (không in màn hình) — mở lại bằng Wireshark |
+| `-r` | **r**ead | Đọc lại file đã ghi |
+| `-A` | **A**SCII | In nội dung gói tin dạng **chữ đọc được** (xem được HTTP thô) |
+| `-c` | **c**ount | Bắt đúng **N gói** rồi tự dừng |
+| `-v`/`-vv` | **v**erbose | Chi tiết hơn |
+
+⭐⭐ **`-nn` — vì sao BẮT BUỘC gần như luôn dùng, không phải tuỳ chọn:**
+
+Thiếu `-nn`, `tcpdump` **tra DNS ngược** cho mỗi IP bắt được VÀ tra tên dịch vụ cho mỗi port (`/etc/services`) — hai việc này **CHẬM ĐI ĐÁNG KỂ** với traffic dày đặc, và **gói tin đến quá nhanh để tra kịp** ⇒ output bị **trễ, lệch thứ tự thời gian thực**. `-nn` giữ nguyên **số thô** (IP số, port số) — nhanh và **chính xác về mặt thời gian** hơn nhiều.
+
+```bash
+tcpdump -i any -nn port 80
+#           │    │   └─ chỉ TRAFFIC LIÊN QUAN port 80 (không phân biệt src/dst, cả 2 chiều)
+#           │    └────── không tra tên host lẫn tên port
+#           └─────────── mọi interface (hợp khi chưa biết traffic đi qua card nào)
+```
+
+⭐ **Bóc filter expression — cú pháp BPF (Berkeley Packet Filter), ngôn ngữ RIÊNG không giống grep:**
+
+```bash
+tcpdump -i any 'port 80 and host 10.0.0.5'
+#              └───────────────────────┘
+#              cú pháp BPF: "and"/"or"/"not" viết CHỮ THƯỜNG, KHÔNG PHẢI && || !
+```
+
+| Từ khoá filter | Nghĩa |
+|---|---|
+| `host <ip>` | Cả **2 chiều** đi/đến IP này |
+| `src host <ip>` | ⭐ **CHỈ chiều gửi TỪ** IP này |
+| `dst host <ip>` | ⭐ **CHỈ chiều gửi ĐẾN** IP này |
+| `port <n>` | Cả 2 chiều với port này |
+| `net <cidr>` | Theo cả **dải mạng** (ví dụ `net 10.0.0.0/24`) |
+
+⭐⭐ **`tcp[tcpflags] & tcp-syn != 0` — công thức chuyên dụng bắt gói SYN, dùng khi debug BẮT TAY TCP:**
+
+```bash
+tcpdump -i any 'tcp[tcpflags] & tcp-syn != 0'
+#              └─ ⭐ chỉ bắt gói CÓ CỜ SYN bật -- đây là gói ĐẦU TIÊN của mọi kết nối TCP mới
+```
+
+⇒ Dùng để trả lời: *"có bao nhiêu KẾT NỐI MỚI đang được mở tới server này?"* (khác với bắt MỌI gói tin, vốn gồm cả dữ liệu ACK/data thông thường của các kết nối ĐÃ có từ trước) — hữu ích khi nghi ngờ có **quá nhiều kết nối mới liên tục** (dấu hiệu connection leak hoặc tấn công).
+
+**Xem nội dung HTTP thô — công cụ cực mạnh khi cần thấy CHÍNH XÁC request/response gửi đi:**
+
+```bash
+tcpdump -i any -A port 80
+#              └─ ⭐ in NỘI DUNG GÓI dạng CHỮ ĐỌC ĐƯỢC (HTTP là giao thức text -> đọc trực tiếp được)
+```
+
+🛑 **`-A` KHÔNG đọc được nội dung HTTPS** — traffic đã **mã hoá TLS**, `tcpdump` chỉ thấy byte vô nghĩa, không phải do lệnh sai mà do bản chất mã hoá đầu-cuối. Muốn xem nội dung HTTPS thật, phải giải mã ở tầng ứng dụng (proxy MITM có cấu hình cert riêng) — vượt ngoài phạm vi của riêng `tcpdump`.
+
+**Ghi lại để phân tích sâu bằng Wireshark (giao diện đồ hoạ, không có trên VDI thường không cài GUI):**
+
+```bash
+tcpdump -i any -w capture.pcap port 443
+#              │                └─ vẫn LỌC ĐƯỢC khi ghi ra file, không bắt buộc phải "hết filter"
+#              └─ ghi RAW, KHÔNG diễn giải gì — nhanh hơn in ra màn hình lúc đang bắt tải cao
+tcpdump -r capture.pcap -nn                # đọc lại NGAY TRÊN TERMINAL, không cần Wireshark
+```
+
+⇒ Chiến lược thực tế: trên server production **không có GUI** (đúng đặc thù server Linux thường gặp), `-w` để **ghi nhanh, ít ảnh hưởng hiệu năng**, rồi **copy file `.pcap` về máy cá nhân** mở bằng Wireshark để phân tích trực quan — tách việc **bắt** (ở server) khỏi việc **phân tích** (ở máy cá nhân có GUI).
+
+⚠️ **`tcpdump` LUÔN cần quyền root** (hoặc capability `CAP_NET_RAW`) vì nó truy cập trực tiếp tầng thấp của card mạng — thiếu quyền sẽ báo `Operation not permitted`, không phải lỗi cú pháp.
+
+</details>
+
 ### mtr - traceroute + ping realtime (tìm điểm mất gói)
 ```bash
 mtr <host>                             # Xem đường đi + % mất gói realtime
 mtr -r -c 100 <host>                    # Báo cáo 100 lần ping (dừng sau khi xong)
 mtr --tcp --port 443 <host>            # Dùng TCP thay ICMP (khi ICMP bị chặn)
 ```
+
+<details>
+<summary><b>Bấm xem: giải nghĩa mtr — kết hợp traceroute và ping LIÊN TỤC</b></summary>
+
+⭐ **Tiền đề — `mtr` giải quyết đúng nhược điểm của `traceroute` và `ping` khi dùng RIÊNG LẺ:**
+
+| | `ping` | `traceroute` | `mtr` |
+|---|---|---|---|
+| Biết gói **có tới đích** không | ✅ | Gián tiếp | ✅ |
+| Biết **từng chặng** trên đường đi | ❌ | ✅ | ✅ |
+| Đo LIÊN TỤC theo thời gian (không chỉ 1 lần chụp) | ✅ (nếu để chạy) | ❌ **Chỉ chạy 1 LẦN rồi dừng** | ⭐ **CÓ** — kết hợp cả hai ưu điểm |
+
+⇒ `traceroute` chỉ cho một **"ảnh chụp"** duy nhất tại một thời điểm — mất gói **NGẪU NHIÊN, không liên tục** (rất phổ biến trong sự cố mạng thật) sẽ **BỊ BỎ LỠ** hoàn toàn nếu đúng lúc chạy traceroute lại không có mất gói. `mtr` giải quyết bằng cách **liên tục ping MỖI CHẶNG**, tích luỹ số liệu theo thời gian — phát hiện được cả **mất gói không liên tục**.
+
+```bash
+mtr <host>
+#      └─ mặc định chạy MÃI, tự cập nhật theo thời gian thực -> Ctrl+C để dừng
+```
+
+**Đọc bảng kết quả — cột `Loss%` là trọng tâm:**
+
+```
+HOST                    Loss%   Snt   Last   Avg  Best  Wrst StDev
+1. gateway.local          0.0%    50    0.5   0.6   0.4   1.2   0.1
+2. isp-router.vn          0.0%    50    2.1   2.3   1.9   3.5   0.2
+3. 203.113.x.x           45.2%    50   15.2  18.1  12.0  95.0  12.3   <- ⭐ ĐIỂM MẤT GÓI
+4. backbone.company.vn    0.0%    50   16.0  17.5  14.2  30.1   3.1
+```
+
+⭐⭐ **Cách đọc quan trọng nhất: mất gói ở MỘT CHẶNG GIỮA đường mà các chặng SAU NÓ vẫn 0% loss — KHÔNG phải chặng đó bị lỗi thật:**
+
+Nhiều router **cố tình giới hạn tốc độ trả lời gói ICMP** (dùng cho `ping`/`traceroute`/`mtr`) để **tiết kiệm tài nguyên xử lý của chính nó** — đây là **hành vi phòng vệ có chủ đích** của thiết bị mạng, không phải router đó bị lỗi hay đường truyền đó thật sự tệ. Router chỉ "lười trả lời ping" nhưng vẫn **chuyển tiếp gói tin THẬT (TCP/UDP) hoàn toàn bình thường**.
+
+⇒ **Quy tắc đọc kết quả**: chỉ coi là **sự cố thật sự** khi `Loss%` cao **VÀ DUY TRÌ liên tục ở TẤT CẢ các chặng TỪ ĐÓ TRỞ ĐI cho tới đích** — không phải chỉ một chặng đơn lẻ ở giữa rồi các chặng sau lại bình thường trở lại.
+
+⭐ **`-r -c 100` — chế độ báo cáo, hợp để LƯU BẰNG CHỨNG thay vì xem trực tiếp:**
+
+```bash
+mtr -r -c 100 <host>
+#     │  └─ đúng 100 LẦN PING rồi TỰ DỪNG (thay vì chạy mãi tới khi Ctrl+C)
+#     └──── report: xuất KẾT QUẢ TỔNG HỢP CUỐI CÙNG dạng bảng tĩnh, dễ COPY gửi cho team khác/lưu log
+```
+
+⇒ Chế độ tương tác (mặc định) phù hợp **quan sát trực tiếp**; `-r` phù hợp khi cần **đính kèm bằng chứng** vào ticket/report, hoặc chạy trong script tự động.
+
+⭐⭐ **`--tcp --port 443` — CỰC QUAN TRỌNG khi ICMP bị chặn (rất phổ biến trong mạng doanh nghiệp):**
+
+```bash
+mtr --tcp --port 443 <host>
+#     │     └─ kiểm tra qua ĐÚNG port dịch vụ thật đang dùng (ví dụ HTTPS)
+#     └──────── dùng gói TCP thay vì ICMP để "ping" từng chặng
+```
+
+⚠️ **Nhắc lại mảnh ghép đã học ở mục Network của Linux troubleshooting**: nhiều firewall doanh nghiệp **chặn ICMP nhưng vẫn cho TCP/UDP đi qua bình thường** — chạy `mtr` mặc định (dùng ICMP) trên hệ thống như vậy sẽ cho kết quả **100% loss giả**, dù dịch vụ thật (website, API) vẫn hoạt động hoàn toàn bình thường. `--tcp --port 443` kiểm tra **đúng loại traffic thật** mà ứng dụng sử dụng — đáng tin cậy hơn nhiều so với `mtr` mặc định trong môi trường mạng doanh nghiệp có kiểm soát chặt.
+
+⇒ **Quy tắc thực hành**: gặp `mtr` mặc định báo mất gói cao bất thường ở TOÀN BỘ các chặng ngay từ đầu, **luôn thử lại bằng `--tcp --port <port thật đang dùng>`** trước khi kết luận "mạng có vấn đề" — rất có thể chỉ là ICMP bị chặn theo chính sách, không phải sự cố thật.
+
+</details>
 
 ### Khác
 ```bash
@@ -8806,6 +8940,89 @@ ip route get 8.8.8.8                   # Xem gói đi ra interface nào
 conntrack -L                           # Bảng theo dõi kết nối NAT (cần root)
 ethtool eth0                           # Thông tin & tốc độ card mạng
 ```
+
+<details>
+<summary><b>Bấm xem: giải nghĩa tshark/iperf3/arp/ip route/conntrack/ethtool</b></summary>
+
+**`tshark` — Wireshark chạy dòng lệnh, dùng khi không có GUI (đúng đặc thù server không màn hình):**
+
+```bash
+tshark -i any -f "port 80"
+#            │   └─ ⭐ cú pháp filter GIỐNG HỆT tcpdump (đều dùng chuẩn BPF đã học ở mục tcpdump)
+#            └────── interface
+```
+
+⚠️ **`tshark` DIỄN GIẢI SÂU giao thức hơn `tcpdump`** — nó hiểu **hàng trăm giao thức tầng ứng dụng** (HTTP, DNS, TLS handshake chi tiết...) và có thể **bóc tách từng field** thay vì chỉ hiện byte thô. Đổi lại, nó **nặng hơn** và cần cài thêm bộ thư viện phân tích giao thức — không phải lúc nào cũng có sẵn như `tcpdump`.
+
+⭐⭐ **`iperf3` — đo BĂNG THÔNG THẬT giữa hai máy, KHÁC hẳn mục đích của `mtr`/`tcpdump`:**
+
+🛑 **Phân biệt rõ hai khái niệm dễ nhầm**: `mtr`/`ping` đo **độ trễ (latency)** — "gói đi mất bao lâu". `iperf3` đo **thông lượng (throughput)** — "TRUYỀN ĐƯỢC BAO NHIÊU DỮ LIỆU MỖI GIÂY". Đường truyền có thể **độ trễ thấp** (ping nhanh) nhưng **thông lượng vẫn thấp** (tải file chậm) — hai chỉ số này **KHÔNG tỷ lệ thuận** với nhau, phải đo cả hai để hiểu đầy đủ chất lượng đường truyền.
+
+```bash
+# Trên MÁY ĐÍCH (server nhận, chạy trước):
+iperf3 -s
+#        └─ mở CỔNG LẮNG NGHE (mặc định 5201), chờ máy kia kết nối tới để đo
+
+# Trên MÁY NGUỒN (gửi dữ liệu thử):
+iperf3 -c <server-ip>
+#        └─ ⭐ c = client: BẮN dữ liệu thử tới server ở trên, đo TỐC ĐỘ THỰC TẾ đạt được
+```
+
+⇒ Rất hữu ích khi nghi ngờ **"đường truyền giữa hai node/data center CHẬM HƠN thông số công bố"** — `ping` chỉ nói độ trễ ổn, phải `iperf3` mới biết chính xác **băng thông thực dùng được** có đạt kỳ vọng hay không.
+
+⚠️ **`iperf3` tạo TẢI MẠNG THẬT SỰ LỚN** trong lúc đo (mặc định cố gắng bão hoà đường truyền để đo tối đa) — chạy trên **production đang phục vụ traffic thật** có thể **ảnh hưởng tới người dùng đang dùng dịch vụ**. Ưu tiên chạy vào khung giờ thấp điểm, hoặc trên môi trường staging/test riêng.
+
+**`arp -a` — bảng IP↔MAC của MẠNG NỘI BỘ (LAN), không dùng được để tra ngoài Internet:**
+
+```bash
+arp -a
+# ? (10.0.0.5) at 00:1a:2b:3c:4d:5e [ether] on eth0
+#                └─ ⭐ MAC address — CHỈ có ý nghĩa TRONG CÙNG MẠNG NỘI BỘ (Layer 2, cùng LAN/VLAN)
+```
+
+⚠️ **ARP hoạt động Ở TẦNG LIÊN KẾT DỮ LIỆU (Layer 2)** — hoàn toàn **khác** với DNS (đã học ở mục DNS phía trên, hoạt động ở tầng cao hơn nhiều). `arp -a` **KHÔNG BAO GIỜ** tra được máy chủ trên Internet — nó chỉ biết những thiết bị **cùng phân đoạn mạng vật lý/ảo trực tiếp** với máy đang chạy lệnh này.
+
+**`ip route` — bảng định tuyến, trả lời "gói tin RA KHỎI máy này qua ngả nào":**
+
+```bash
+ip route
+# default via 10.0.0.1 dev eth0        <- ⭐ đường ĐI RA NGOÀI mặc định (không khớp route nào khác thì đi đây)
+# 10.0.0.0/24 dev eth0 proto kernel     <- mạng NỘI BỘ, đi TRỰC TIẾP qua eth0, KHÔNG qua gateway
+
+ip route get 8.8.8.8
+#            └─ ⭐ hỏi CỤ THỂ: gói gửi tới ĐÚNG địa chỉ NÀY sẽ đi qua route nào, interface nào
+#               -> hữu ích khi máy có NHIỀU card mạng, cần biết CHÍNH XÁC gói đi qua đâu
+```
+
+⇒ Dùng khi nghi ngờ **"máy này có nhiều interface, traffic đang đi nhầm đường"** — ví dụ có cả mạng nội bộ VPN lẫn mạng thường, cần xác nhận traffic tới một IP cụ thể đi qua interface nào.
+
+⭐ **`conntrack -L` — bảng NAT/kết nối đang được kernel THEO DÕI, khái niệm quan trọng khi debug qua NAT/firewall:**
+
+```bash
+conntrack -L
+#           └─ ⭐ L = List: cần QUYỀN ROOT, hiện MỌI kết nối kernel đang GHI NHỚ trạng thái
+#              (TCP, UDP, cả kết nối NAT được dịch địa chỉ)
+```
+
+⚠️ **Tiền đề cần hiểu**: khi một máy làm **NAT/router/firewall** (chuyển tiếp traffic hộ máy khác), kernel phải **NHỚ** mỗi kết nối đang đi qua để biết **dịch IP/port ngược lại đúng cho gói phản hồi**. Bảng này có **KÍCH THƯỚC GIỚI HẠN** (`nf_conntrack_max`) — traffic quá lớn có thể làm bảng **ĐẦY**, gây ra hiện tượng **kết nối MỚI bị rớt ngẫu nhiên** dù băng thông và CPU vẫn còn dư dả, một dạng sự cố khó chẩn đoán nếu không biết tới khái niệm conntrack.
+
+```bash
+cat /proc/sys/net/netfilter/nf_conntrack_count      # đang dùng BAO NHIÊU slot
+cat /proc/sys/net/netfilter/nf_conntrack_max        # GIỚI HẠN TỐI ĐA
+```
+
+**`ethtool` — thông tin PHẦN CỨNG card mạng, tầng thấp nhất trong toàn bộ mục Network debug này:**
+
+```bash
+ethtool eth0
+#            └─ ⭐ Speed (tốc độ THẬT đang thương lượng được, ví dụ 1000Mb/s hay chỉ 100Mb/s),
+#               Duplex (Full/Half — Half-duplex trên mạng hiện đại LÀ DẤU HIỆU BẤT THƯỜNG),
+#               Link detected (yes/no — cáp có ĐANG CẮM và nhận diện được không)
+```
+
+⚠️ **`Speed` báo thấp hơn kỳ vọng (ví dụ card 1Gbps mà chỉ thương lượng được 100Mbps)** thường do **auto-negotiation lỗi** giữa card mạng và switch — không phải phần mềm/ứng dụng chậm, mà là **tầng vật lý** đã bị giới hạn tốc độ từ trước khi bất kỳ gói tin ứng dụng nào được gửi đi. Đây là công cụ **cuối cùng, sâu nhất** để loại trừ nguyên nhân phần cứng trước khi tiếp tục nghi ngờ ở các tầng phần mềm cao hơn.
+
+</details>
 
 ---
 
@@ -8825,6 +9042,63 @@ velero schedule create daily --schedule="0 2 * * *"   # Lịch backup tự độ
 velero backup-location get                          # Nơi lưu backup (S3/GCS...)
 ```
 
+<details>
+<summary><b>Bấm xem: giải nghĩa Velero — vì sao nó backup được CẢ manifest lẫn data</b></summary>
+
+⭐ **Tiền đề — Velero khác các cách backup thủ công đã học TRƯỚC ĐÓ (mục cuối cùng của cheatsheet: `kubectl get ... -o yaml`) ở điểm nào?**
+
+Backup thủ công bằng `kubectl get -o yaml` (sẽ giải thích chi tiết ở mục cuối) chỉ lấy được **CẤU HÌNH** (manifest) — **KHÔNG lấy được DỮ LIỆU THẬT bên trong PersistentVolume**. Velero giải quyết **CẢ HAI** cùng lúc: vừa lưu manifest, vừa (tuỳ chọn) **snapshot ổ đĩa thật** thông qua tích hợp với cloud provider hoặc CSI driver.
+
+| Lệnh | Làm gì |
+|---|---|
+| `velero backup create <name>` | Backup toàn cluster (mặc định) |
+| `--include-namespaces` | Chỉ backup **một số** namespace cụ thể |
+| `--selector` | Chỉ backup resource khớp **label** |
+| `--snapshot-volumes` | ⭐ Kèm **snapshot dữ liệu THẬT** của PersistentVolume |
+| `--include-cluster-resources` | Kèm resource **KHÔNG thuộc namespace nào** (ClusterRole, StorageClass...) |
+| `velero schedule create` | Lịch backup **tự động lặp lại**, cú pháp cron quen thuộc |
+
+```bash
+velero backup create prod-daily --include-namespaces prod --snapshot-volumes
+#                     │           │                        └─ ⭐ KÈM data thật của PVC,
+#                     │           │                           KHÔNG CÓ cờ này thì CHỈ backup MANIFEST
+#                     │           │                           (giống hệt kubectl get -o yaml — không có DATA)
+#                     │           └────────────────────────── giới hạn phạm vi CHỈ namespace "prod"
+#                     └────────────────────────────────────── tên backup TỰ ĐẶT, dùng để tra cứu/restore sau
+```
+
+🛑 **Thiếu `--snapshot-volumes` — backup TƯỞNG như đầy đủ nhưng THỰC RA chỉ có "vỏ" mà không có "ruột":**
+
+Không có cờ này, Velero chỉ lưu **YAML mô tả** PVC (kích thước, StorageClass...) — **KHÔNG lưu NỘI DUNG THẬT** bên trong. Restore lại sẽ tạo ra **PVC RỖNG, đúng kích thước nhưng KHÔNG có data** — database restore xong **HOÀN TOÀN TRỐNG**, dù backup "chạy thành công không báo lỗi gì". Đây là bẫy nguy hiểm nhất khi mới dùng Velero mà chưa hiểu kỹ ý nghĩa của cờ này.
+
+⭐ **`--include-cluster-resources` — bẫy thứ hai, dễ khiến backup TƯỞNG đủ mà thiếu phần QUAN TRỌNG:**
+
+Nhắc lại mảnh ghép đã học ở mục `kubectl get all` phía trên: có những resource **KHÔNG thuộc namespace nào** (ClusterRole, ClusterRoleBinding, StorageClass, PersistentVolume — khác PersistentVolumeClaim vốn CÓ thuộc namespace). Backup **CHỈ theo namespace** (`--include-namespaces`) sẽ **BỎ SÓT hoàn toàn** những resource cấp cluster này — restore lên cluster MỚI có thể **THIẾU StorageClass**, khiến PVC **KHÔNG tạo được** dù manifest namespace đã restore đầy đủ, đúng.
+
+**Restore — và điều cần biết TRƯỚC KHI chạy thật trên môi trường quan trọng:**
+
+```bash
+velero restore create --from-backup prod-daily
+#                      └─ tạo LẠI mọi resource TỪ ĐÚNG bản backup này VÀO cluster HIỆN TẠI
+
+velero restore get                              # xem TIẾN TRÌNH/kết quả các lần restore đã làm
+velero backup describe prod-daily --details     # ⭐ xem CHI TIẾT: resource NÀO ĐÃ backup thành công,
+#                                                   resource NÀO BỊ BỎ QUA (và LÝ DO vì sao)
+```
+
+⚠️ **`velero restore` MẶC ĐỊNH KHÔNG GHI ĐÈ** resource đã tồn tại sẵn trên cluster đích (tránh vô tình phá vỡ những gì đang chạy tốt) — restore vào MỘT cluster ĐÃ có sẵn cùng namespace/resource đó thường sẽ **BÁO XUNG ĐỘT** thay vì tự động ghi đè. Restore **kiểu Disaster Recovery thật sự** (dựng lại từ đầu) nên nhắm vào **CLUSTER MỚI, TRỐNG** để tránh xung đột không cần thiết.
+
+**`velero backup-location get` — kiểm tra NƠI LƯU backup, việc BẮT BUỘC PHẢI làm trước khi tin tưởng vào bất kỳ chiến lược backup nào:**
+
+```bash
+velero backup-location get
+#                          └─ ⭐ backup được đẩy đi ĐÂU (S3/GCS/Azure Blob...) và có ĐANG "Available" không
+```
+
+⚠️ **Nguyên tắc vàng đã được nhắc ở phần cuối cùng của cheatsheet (mục Vận hành & Backup Cluster K8s)**: backup phải nằm **NGOÀI cluster** — nếu `backup-location` trỏ vào **MinIO/storage CHẠY NGAY TRONG chính cluster đang được backup**, thì cluster sập **CÓ THỂ kéo theo CẢ storage chứa backup sập theo** — hoàn toàn mất tác dụng bảo vệ khi thảm hoạ thật sự xảy ra.
+
+</details>
+
 ### etcd - backup dữ liệu control plane (quan trọng nhất của K8s)
 ```bash
 # Snapshot (chạy trên control plane node)
@@ -8840,6 +9114,78 @@ ETCDCTL_API=3 etcdctl member list                  # Liệt kê member cluster
 # Restore: etcdctl snapshot restore snapshot.db --data-dir /var/lib/etcd-restore
 ```
 
+<details>
+<summary><b>Bấm xem: giải nghĩa etcdctl — vì sao etcd là "quan trọng nhất" của cả cluster</b></summary>
+
+⭐⭐ **Tiền đề — vì sao gọi etcd là backup "QUAN TRỌNG NHẤT" trong TOÀN BỘ K8s?**
+
+Nhắc lại kiến thức nền: mọi thứ trong Kubernetes — Pod, Service, Secret, RBAC, thậm chí **CHÍNH ArgoCD Application CRD** đã học ở mục GitOps phía trên — **CUỐI CÙNG ĐỀU chỉ là dữ liệu được LƯU TRONG etcd**. API server chỉ là **lớp giao diện** đọc/ghi vào etcd; `kubectl`/ArgoCD/Helm đều **thông qua** API server để chạm tới etcd. **Mất etcd = MẤT TOÀN BỘ TRẠNG THÁI CLUSTER**, kể cả khi mọi Pod/Node vẫn đang chạy vật lý bình thường — cluster sẽ **KHÔNG BIẾT** nó đang có những gì.
+
+```bash
+ETCDCTL_API=3 etcdctl snapshot save snapshot.db \
+  --endpoints=https://127.0.0.1:2379 \
+  --cacert=/etc/kubernetes/pki/etcd/ca.crt \
+  --cert=/etc/kubernetes/pki/etcd/server.crt \
+  --key=/etc/kubernetes/pki/etcd/server.key
+```
+
+Bóc từng mảnh:
+
+```bash
+ETCDCTL_API=3
+# └─ ⭐ etcd có HAI PHIÊN BẢN API (v2 CŨ và v3 MỚI), CÚ PHÁP LỆNH KHÁC NHAU HOÀN TOÀN GIỮA HAI BẢN
+#    KHÔNG khai báo biến này -> etcdctl bản CŨ HƠN sẽ MẶC ĐỊNH dùng v2, LỆNH SẼ BÁO LỖI/SAI HÀNH VI
+
+etcdctl snapshot save snapshot.db
+#                └─ ⭐ CHỤP TOÀN BỘ dữ liệu etcd tại THỜI ĐIỂM NÀY ra MỘT FILE DUY NHẤT
+
+--endpoints=https://127.0.0.1:2379
+#           └─ ⭐ etcd LUÔN dùng TLS (KHÔNG BAO GIỜ chạy HTTP thường) -> BẮT BUỘC "https://"
+
+--cacert / --cert / --key
+#          └─ ⭐ etcd YÊU CẦU chứng thực TLS HAI CHIỀU (mutual TLS) — KHÔNG PHẢI chỉ password thông thường
+#             ba file này thường có SẴN trên MÁY CONTROL PLANE, tại /etc/kubernetes/pki/etcd/
+```
+
+⚠️ **Lệnh này BẮT BUỘC phải chạy TRỰC TIẾP trên MÁY CONTROL PLANE** (nơi có sẵn 3 file chứng chỉ TLS nói trên) — không thể chạy từ máy laptop cá nhân trừ khi đã COPY SẴN đủ 3 file cert này ra (và làm vậy tiềm ẩn RỦI RO BẢO MẬT nếu không cẩn thận với nơi lưu các file cert đó).
+
+**Kiểm tra snapshot NGAY SAU khi tạo — bước KHÔNG ĐƯỢC BỎ QUA:**
+
+```bash
+ETCDCTL_API=3 etcdctl snapshot status snapshot.db --write-out=table
+#                                                   └─ ⭐ in ra DẠNG BẢNG: hash, số revision, TỔNG SỐ KEY
+```
+
+🛑 **`snapshot save` "chạy xong KHÔNG BÁO LỖI" KHÔNG ĐỒNG NGHĨA file snapshot HOÀN TOÀN ĐÁNG TIN.** Luôn `snapshot status` NGAY SAU để xác nhận file **ĐỌC ĐƯỢC ĐÚNG CẤU TRÚC** và có **SỐ LƯỢNG KEY HỢP LÝ** (không phải file 0 byte hay bị cắt cụt giữa chừng do hết dung lượng đĩa lúc đang ghi) — đây chính là bước áp dụng đúng nguyên tắc đã học ở đầu cheatsheet: *"test restore định kỳ — backup không test = không có backup"*.
+
+**Kiểm tra sức khoẻ etcd — chẩn đoán TRƯỚC KHI backup, tránh backup MỘT bản dữ liệu ĐANG CÓ VẤN ĐỀ:**
+
+```bash
+ETCDCTL_API=3 etcdctl endpoint health --endpoints=https://127.0.0.1:2379 --cacert=... --cert=... --key=...
+#                       └─ chỉ trả lời NGẮN GỌN: "healthy" hoặc lỗi cụ thể
+
+ETCDCTL_API=3 etcdctl endpoint status --write-out=table --endpoints=... --cacert=... --cert=... --key=...
+#                       └─ ⭐ CHI TIẾT HƠN: DUNG LƯỢNG DB hiện tại, AI ĐANG LÀ LEADER (etcd chạy CỤM NHIỀU NODE)
+
+ETCDCTL_API=3 etcdctl member list --endpoints=... --cacert=... --cert=... --key=...
+#                       └─ ⭐ danh sách MỌI MEMBER trong CỤM etcd (production THƯỜNG có 3 hoặc 5 node,
+#                          giống HỆT nguyên lý QUORUM đã gặp ở Redis Sentinel/etcd trong hạ tầng AI Hub)
+```
+
+⚠️ **etcd YÊU CẦU ĐA SỐ TUYỆT ĐỐI (QUORUM) member phải sống** mới GHI ĐƯỢC dữ liệu mới — với cụm 3 node, **MẤT 2 node** là **TOÀN BỘ CLUSTER K8s NGỪNG NHẬN THAY ĐỔI MỚI** (dù Pod đang chạy vẫn tiếp tục chạy, nhưng KHÔNG deploy/sửa gì được nữa) — cùng NGUYÊN LÝ quorum đã học khi làm việc với Redis Sentinel hay Patroni trong hạ tầng PostgreSQL HA.
+
+**Restore — thao tác THUỘC LOẠI THẢM HOẠ, chỉ làm khi THỰC SỰ CẦN THIẾT:**
+
+```bash
+etcdctl snapshot restore snapshot.db --data-dir /var/lib/etcd-restore
+#                                     └─ ⭐ khôi phục vào THƯ MỤC DỮ LIỆU MỚI HOÀN TOÀN,
+#                                        TUYỆT ĐỐI KHÔNG GHI ĐÈ TRỰC TIẾP lên thư mục etcd ĐANG CHẠY
+```
+
+⚠️ Sau lệnh `restore`, còn phải **TRỎ static pod của etcd SANG `--data-dir` MỚI** này rồi **restart kubelet** — restore etcd **KHÔNG PHẢI** một lệnh đơn giản là xong, mà là **QUY TRÌNH nhiều bước**, cần làm CẨN THẬN theo đúng thứ tự đã tóm lược ở mục DR Runbook cuối cùng của cheatsheet này.
+
+</details>
+
 ### Backup database & file (cron-friendly)
 ```bash
 pg_dump -U user db | gzip > backup_$(date +%F).sql.gz   # Backup Postgres kèm ngày
@@ -8848,6 +9194,83 @@ tar -czf backup_$(date +%F).tar.gz /data           # Backup thư mục kèm ngà
 aws s3 cp backup.sql.gz s3://<bucket>/backups/      # Đẩy backup lên S3
 find /backups -mtime +30 -delete                    # Xóa backup cũ > 30 ngày
 ```
+
+<details>
+<summary><b>Bấm xem: tổng hợp công thức backup có ngày tháng, tự đẩy off-site, tự dọn cũ</b></summary>
+
+⭐ Mục này **KHÔNG giới thiệu lệnh mới** — nó GHÉP LẠI các mảnh đã học rải rác (`pg_dump` ở mục PostgreSQL, `tar` ở mục Nén & giải nén, `aws s3 cp` ở mục AWS CLI, `find -delete` ở mục File & thư mục) thành **MỘT CÔNG THỨC HOÀN CHỈNH** áp dụng được ngay trong `crontab` (đã học cú pháp ở mục Cron phía trên).
+
+**Bóc `$(date +%F)` — mảnh ghép nhỏ nhưng XUẤT HIỆN LẶP LẠI RẤT NHIỀU LẦN trong cheatsheet này:**
+
+```bash
+$(date +%F)
+#  └─ ⭐ %F là VIẾT TẮT CHUẨN cho ĐỊNH DẠNG "YYYY-MM-DD" (ví dụ: 2026-08-10)
+#     -> $(...): SHELL CHẠY LỆNH date TRƯỚC, rồi CHÈN kết quả (chuỗi ngày) vào chỗ đó
+#        (giống HỆT cơ chế command substitution ĐÃ giải thích ở mục docker rm -f $(docker ps -aq))
+```
+
+⇒ Vì sao ĐẶT TÊN FILE KÈM NGÀY THÁNG là BẮT BUỘC trong mọi backup? Không có nó, chạy cron **MỖI ĐÊM** sẽ liên tục **GHI ĐÈ ĐÈ LÊN NHAU CÙNG một file tên cố định** — chỉ còn ĐÚNG bản backup CUỐI CÙNG, MẤT SẠCH mọi bản backup của những ngày trước đó.
+
+**Backup PostgreSQL/MySQL kèm nén — công thức GHÉP HAI LỆNH đã học:**
+
+```bash
+pg_dump -U user db | gzip > backup_$(date +%F).sql.gz
+#        └─ ⭐ pg_dump XUẤT ra ĐẦU RA CHUẨN (stdout, không phải file trực tiếp)
+#           -> gzip NHẬN qua PIPE và NÉN NGAY LẬP TỨC -> KHÔNG BAO GIỜ có file .sql THÔ TRUNG GIAN chưa nén
+#              (tiết kiệm ĐÁNG KỂ dung lượng đĩa TRONG LÚC ĐANG backup)
+```
+
+⚠️ Nhắc lại RÕ mảnh ghép QUAN TRỌNG đã cảnh báo ở mục PostgreSQL phía trên: `pg_dump` THƯỜNG (KHÔNG có `--single-transaction`) sẽ **KHOÁ BẢNG** trong lúc backup. Đưa lệnh backup NÀY vào cron chạy **MỖI ĐÊM** mà THIẾU cờ đó là **LẶP LẠI SỰ CỐ downtime MỖI ĐÊM** — không phải chỉ xảy ra một lần.
+
+**Backup thư mục kèm ngày, rồi ĐẨY LÊN cloud — ba bước GHÉP LẠI thành MỘT quy trình hoàn chỉnh:**
+
+```bash
+tar -czf backup_$(date +%F).tar.gz /data
+aws s3 cp backup_$(date +%F).tar.gz s3://mybucket/backups/
+find /backups -mtime +30 -delete
+```
+
+⭐⭐ **VÌ SAO PHẢI CÓ CẢ BA BƯỚC, THIẾU MỘT BƯỚC LÀ CHIẾN LƯỢC BACKUP KHÔNG ĐẦY ĐỦ:**
+
+| Bước | Thiếu bước này thì sao |
+|---|---|
+| `tar` | Không có gì để backup — hiển nhiên |
+| `aws s3 cp` | ⭐⭐ Backup CHỈ nằm TRÊN CHÍNH server đó — máy đó CHÁY/hỏng ĐĨA là **MẤT LUÔN CẢ DỮ LIỆU GỐC LẪN BACKUP CÙNG LÚC**. Đây CHÍNH LÀ nguyên tắc "backup phải NẰM NGOÀI cluster/máy nguồn" đã nhắc ở mục Velero |
+| `find -mtime +30 -delete` | Đĩa chứa backup **PHÌNH TO VÔ HẠN THEO THỜI GIAN** cho tới khi **HẾT DUNG LƯỢNG** — và ĐÂY CHÍNH LÀ nguyên nhân của một trong những sự cố ĐÃ GIẢI THÍCH kỹ ở mục Ổ đĩa (Disk) phía trên |
+
+⚠️ Nhắc lại RÕ CẢNH BÁO đã nêu ở mục File & thư mục: **LUÔN chạy `find /backups -mtime +30` (KHÔNG có `-delete`) TRƯỚC** để XEM DANH SÁCH sẽ xoá, RỒI MỚI thêm `-delete` khi đã CHẮC CHẮN đúng — quy tắc này áp dụng CHO CẢ script backup tự động, không riêng gì khi gõ lệnh tay.
+
+**⭐ Công thức HOÀN CHỈNH — script backup có thể copy dùng NGAY, gộp TẤT CẢ nguyên tắc đã học ở các mục trước:**
+
+```bash
+#!/bin/bash
+set -euo pipefail
+#   │││
+#   ││└─ pipefail: LỆNH TRONG PIPE (|) BỊ LỖI Ở BẤT KỲ ĐÂU cũng làm CẢ DÒNG LỆNH báo lỗi
+#   │└── u: DÙNG BIẾN CHƯA KHAI BÁO -> DỪNG NGAY (bắt lỗi gõ SAI TÊN biến sớm)
+#   └─── e: BẤT KỲ LỆNH NÀO lỗi -> DỪNG SCRIPT NGAY, KHÔNG chạy tiếp các bước SAU
+
+DATE=$(date +%F)
+BACKUP_FILE="backup_${DATE}.sql.gz"
+
+pg_dump -U app --single-transaction db | gzip > "$BACKUP_FILE"
+#                └─ ⭐ ĐỪNG khoá bảng (đã học ở mục PostgreSQL) khi chạy TỰ ĐỘNG MỖI ĐÊM
+
+aws s3 cp "$BACKUP_FILE" "s3://mybucket/backups/${BACKUP_FILE}"
+#              └─ ⭐ ĐẨY RA NGOÀI máy nguồn NGAY, đừng để backup NẰM MỘT MÌNH trên server
+
+find /backups -name "backup_*.sql.gz" -mtime +30 -delete
+#     └─ ⭐ TỰ DỌN cũ, ĐÃ TEST TRƯỚC BẰNG find KHÔNG -delete (không viết trong script,
+#          nhưng đây LÀ BƯỚC BẮT BUỘC PHẢI LÀM MỘT LẦN KHI VIẾT SCRIPT, trước khi đưa vào cron)
+```
+
+⇒ Ghép VÀO `crontab` (cú pháp đã học ở mục Cron phía trên) — NHỚ ĐƯỜNG DẪN TUYỆT ĐỐI và chuyển hướng log ĐẦY ĐỦ, ĐÚNG như đã cảnh báo TRƯỚC ĐÓ:
+
+```bash
+0 2 * * * /opt/scripts/backup.sh >> /var/log/backup.log 2>&1
+```
+
+</details>
 
 ---
 
@@ -8870,6 +9293,90 @@ cmctl renew <name>                     # Ép gia hạn cert ngay
 # READY=False        -> xem describe certificate -> certificaterequest -> challenge
 # Challenge pending  -> thường do DNS/HTTP-01 chưa verify được (kiểm tra ingress/DNS)
 ```
+
+<details>
+<summary><b>Bấm xem: giải nghĩa cert-manager — Certificate/CertificateRequest/Challenge, ba tầng trung gian</b></summary>
+
+⭐ **Tiền đề — cert-manager giải quyết bài toán gì?** Chứng chỉ TLS (đã học cách KIỂM TRA ở mục SSL/Certificate phía trên) có **hạn sử dụng** (Let's Encrypt chỉ **90 ngày**) — gia hạn tay định kỳ cho HÀNG CHỤC domain là việc **DỄ QUÊN VÀ DỄ SAI**. `cert-manager` là một **CONTROLLER chạy TRONG K8s**, TỰ ĐỘNG xin cấp và GIA HẠN cert TRƯỚC KHI hết hạn — không cần con người can thiệp mỗi 90 ngày.
+
+⭐⭐ **Tiền đề BẮT BUỘC hiểu trước: BA TẦNG CRD xếp CHỒNG lên nhau, phải BIẾT thứ tự để CHẨN ĐOÁN ĐÚNG chỗ khi lỗi:**
+
+```
+Certificate  (bạn TẠO cái này, khai báo "TÔI MUỐN cert cho domain X")
+    │
+    └─> CertificateRequest  (cert-manager TỰ SINH, đại diện MỘT LẦN yêu cầu CỤ THỂ gửi đi CA)
+              │
+              └─> Order + Challenge  (TỰ SINH TIẾP, ĐÂY LÀ BƯỚC "CHỨNG MINH bạn SỞ HỮU domain" với CA)
+```
+
+| Lệnh | Xem ở TẦNG nào |
+|---|---|
+| `kubectl get certificate -A` | ⭐ Tầng NGOÀI CÙNG — TRẠNG THÁI TỔNG THỂ, ĐÂY LÀ CHỖ NHÌN ĐẦU TIÊN |
+| `kubectl describe certificate <n>` | Chi tiết + LÝ DO NẾU CHƯA SẴN SÀNG |
+| `kubectl get certificaterequest -A` | Tầng GIỮA — YÊU CẦU đã GỬI TỚI CA CHƯA |
+| `kubectl get order,challenge -A` | ⭐ Tầng TRONG CÙNG — QUÁ TRÌNH XÁC THỰC ACME (Let's Encrypt) |
+| `kubectl describe challenge <n>` | ⭐⭐ LÝ DO CHI TIẾT NHẤT khi challenge THẤT BẠI |
+
+⭐⭐ **VÌ SAO PHẢI ĐI TỪ NGOÀI VÀO TRONG, KHÔNG NHẢY THẲNG VÀO CHALLENGE?**
+
+Vì `Certificate` LUÔN ĐÚNG khi HỎI *"CÓ ĐANG CÓ VẤN ĐỀ KHÔNG"* — NHƯNG KHÔNG BAO GIỜ TỰ NÓ NÓI RÕ *"VÌ SAO CÓ VẤN ĐỀ"*. Câu trả lời "VÌ SAO" nằm CÀNG SÂU CÀNG CHI TIẾT — GIỐNG HỆT nguyên tắc `describe pod` → Events ĐÃ HỌC RẤT KỸ ở mục kubectl phía trên, chỉ khác Ở ĐÂY có TỚI BA TẦNG lồng nhau thay vì MỘT.
+
+```bash
+kubectl get certificate -A
+# NAMESPACE  NAME          READY   SECRET        AGE
+# ai-hub     api-tls       False   api-tls-secret  5m
+#             │             └─ ⭐ FALSE = CHƯA CẤP ĐƯỢC -> BƯỚC TIẾP THEO LUÔN LÀ describe, ĐỪNG ĐOÁN
+```
+
+```bash
+kubectl describe certificate api-tls -n ai-hub
+#           └─ mục "Conditions" Ở CUỐI THƯỜNG CHỈ NÓI CHUNG CHUNG kiểu:
+#              "Waiting for CertificateRequest to complete" -> ⭐ CHƯA ĐỦ CHI TIẾT, PHẢI ĐÀO SÂU TIẾP
+```
+
+```bash
+kubectl get certificaterequest -A
+#                                └─ XEM request NÀY đã ĐƯỢC CA CHẤP NHẬN hay CHƯA
+kubectl describe challenge <ten-challenge> -n ai-hub
+#                           └─ ⭐⭐ ĐÂY MỚI LÀ NƠI THẤY LÝ DO THẬT SỰ, cụ thể, chi tiết nhất:
+#                              "DNS record not found" HOẶC "HTTP-01 self check failed"...
+```
+
+⭐⭐ **Challenge pending — HAI KIỂU XÁC THỰC ACME PHỔ BIẾN NHẤT, LỖI HOÀN TOÀN KHÁC NHAU giữa hai kiểu:**
+
+| Kiểu Challenge | CA (Let's Encrypt) kiểm tra CÁI GÌ | Lỗi THƯỜNG GẶP |
+|---|---|---|
+| **HTTP-01** | Truy cập `http://domain/.well-known/acme-challenge/...` và MONG ĐỢI đọc được ĐÚNG một chuỗi TOKEN | ⚠️ **Ingress CHƯA route** đúng đường dẫn này · **DNS CHƯA TRỎ ĐÚNG IP THẬT** (nhắc lại mảnh ghép ĐÃ HỌC ở mục DNS: kiểm tra bằng `dig +trace`) |
+| **DNS-01** | Domain có **TXT record** ĐÚNG giá trị mà cert-manager đã TỰ SINH RA hay KHÔNG | ⚠️ **API key của nhà cung cấp DNS BỊ SAI/HẾT HẠN** · **TTL DNS quá dài** khiến chưa kịp lan truyền (đã học Ở mục DNS: hạ TTL TRƯỚC khi làm việc quan trọng) |
+
+⇒ `describe challenge` sẽ NÓI RÕ ĐANG DÙNG kiểu NÀO — TỪ ĐÓ mới BIẾT CHÍNH XÁC PHẢI KIỂM TRA Ở ĐÂU (Ingress hay nhà cung cấp DNS), THAY VÌ đoán mò cả hai hướng.
+
+**`clusterissuer` — "AI ĐANG LÀ NGƯỜI CẤP CHỨNG CHỈ", tầng NGOÀI CÙNG, CẦN ĐÚNG TRƯỚC TIÊN thì mọi thứ SAU MỚI CÓ Ý NGHĨA:**
+
+```bash
+kubectl get clusterissuer
+#                          └─ Let's Encrypt (staging HOẶC production), hoặc CA NỘI BỘ TỰ DỰNG
+kubectl describe clusterissuer letsencrypt-prod
+#                                └─ ⭐ TRẠNG THÁI issuer CÓ ĐANG HOẠT ĐỘNG TỐT KHÔNG
+#                                   (issuer TỰ NÓ hỏng THÌ MỌI Certificate DÙNG NÓ ĐỀU SẼ FAIL HÀNG LOẠT,
+#                                    KHÔNG PHẢI riêng lẻ TỪNG domain một)
+```
+
+⚠️ **Let's Encrypt CÓ HAI MÔI TRƯỜNG TÁCH BIỆT HOÀN TOÀN, DỄ NHẦM: `staging` VÀ `production`.** Môi trường `staging` cấp cert **KHÔNG được trình duyệt tin cậy** (dùng để TEST cấu hình, tránh chạm RATE LIMIT NGHIÊM NGẶT của production) — nếu website LÊN PRODUCTION mà trình duyệt BÁO "not trusted", RẤT CÓ THỂ ClusterIssuer ĐANG TRỎ NHẦM VÀO `letsencrypt-staging` thay vì `letsencrypt-prod`, chứ KHÔNG PHẢI lỗi Ở TẦNG NÀO KHÁC.
+
+**`cmctl` — CLI RIÊNG của cert-manager, có LỆNH TIỆN hơn tự đào ba tầng CRD bằng tay:**
+
+```bash
+cmctl status certificate api-tls -n ai-hub
+#             └─ ⭐ TỰ ĐỘNG GOM đủ TRẠNG THÁI của CẢ BA TẦNG (Certificate + Request + Challenge)
+#                LẠI thành MỘT bản tóm tắt DUY NHẤT — ĐỠ phải TỰ TAY `kubectl get` từng tầng một
+
+cmctl renew api-tls -n ai-hub
+#            └─ ⭐ ÉP GIA HẠN NGAY, KHÔNG CẦN chờ tới GẦN hạn TỰ ĐỘNG kích hoạt
+#               (dùng khi TEST cấu hình MỚI, hoặc KHI NGHI NGỜ cert CŨ có VẤN ĐỀ CẦN cấp lại NGAY)
+```
+
+</details>
 
 ---
 
