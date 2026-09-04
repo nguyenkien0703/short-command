@@ -15,7 +15,7 @@
 | Dùng thành thạo Claude Code (command/hook/MCP/subagent) | [claude-code-guide.md](./claude-code-guide.md) |
 | Vận hành / xử lý sự cố cluster K8s | [k8s-operations-playbook.md](./k8s-operations-playbook.md) |
 | Học AWS để thi cert (SAA/SAP/SysOps/DevOps) | [cloud/aws/](./cloud/aws/README.md) |
-| Định hình hướng đi AI (MLOps/SRE/DevSecOps) | [tracks/](./tracks/README.md) |
+| Định hình hướng chuyên môn hoá (DevSecOps → SRE) | [tracks/](./tracks/README.md) |
 | Phát triển sự nghiệp lên Architect/Lead | [career-roadmap.md](./career-roadmap.md) |
 | Luyện viết ADR / design doc (trình sếp) | [templates/](./templates/README.md) |
 
@@ -39,12 +39,10 @@
   - [practice-questions](./cloud/aws/practice-questions.md) — câu hỏi kiểu đề thật
   - [cert-roadmap](./cloud/aws/cert-roadmap.md) — chiến lược từng cert
 
-### 🤖 AI Platform Engineering (MLOps · SRE · DevSecOps)
-- **[tracks/](./tracks/README.md)** — định hình & đào sâu hướng AI:
-  - [roadmap-ai-platform-engineer](./tracks/roadmap-ai-platform-engineer.md) — 🎯 lộ trình phân lớp + LLMOps vs MLOps *(bắt đầu ở đây)*
-  - Hướng nghề: [mlops](./tracks/mlops.md) · [sre](./tracks/sre.md) · [devsecops](./tracks/devsecops.md)
-  - Kỹ thuật sâu: [ml-serving-k8s](./tracks/ml-serving-k8s.md) (KServe/GPU) · [llmops-end-to-end](./tracks/llmops-end-to-end.md) (RAG+vLLM+eval+guardrails) · [fine-tuning-lora](./tracks/fine-tuning-lora.md) · [vector-db-scale](./tracks/vector-db-scale.md)
-  - Nền tảng: [ml-concepts-explained](./tracks/ml-concepts-explained.md) — phân biệt train/inference/fine-tune/RAG...
+### 🛡️ Chuyên môn hoá (DevSecOps · SRE)
+- **[tracks/](./tracks/README.md)** — 🎯 big picture + **lộ trình 12 tháng** (bắt đầu ở đây): trục chính **DevSecOps**, trục hai **SRE**, bối cảnh 2026 (supply chain, SLSA/SBOM, EU CRA, Luật BVDLCN VN, runtime-first).
+  - Hướng nghề: [devsecops](./tracks/devsecops.md) · [sre](./tracks/sre.md)
+  - Tham chiếu (không nằm trong lộ trình): [roadmap-ai-platform-engineer](./tracks/roadmap-ai-platform-engineer.md) · [mlops](./tracks/mlops.md) · [ml-serving-k8s](./tracks/ml-serving-k8s.md) · [llmops-end-to-end](./tracks/llmops-end-to-end.md) · [fine-tuning-lora](./tracks/fine-tuning-lora.md) · [vector-db-scale](./tracks/vector-db-scale.md) · [ml-concepts-explained](./tracks/ml-concepts-explained.md)
 
 ### 📈 Sự nghiệp & kỹ năng
 - **[career-roadmap.md](./career-roadmap.md)** — Middle → Senior → Staff/Architect (IC track) → Leadership: skill matrix, checklist lên cấp, kế hoạch 12 tháng, ra quyết định kiến trúc.
@@ -63,9 +61,9 @@ Nền DevOps vững:      cheatsheet -> k8s-operations-playbook -> k8s-productio
 
 Kiến trúc Cloud/Cert: cloud/aws (00 -> 07) -> labs/cidr -> practice-questions -> cert-roadmap
 
-Chuyển hướng AI:      tracks/roadmap-ai-platform-engineer -> mlops -> ml-serving-k8s
-                      -> llmops-end-to-end -> fine-tuning-lora -> vector-db-scale
-                      (bổ sung: sre, devsecops)
+Chuyên môn hoá:       tracks/README (lộ trình 12 tháng) -> devsecops -> sre
+                      (pipeline security -> supply chain/SBOM+ký -> policy & runtime
+                       -> cloud security & compliance -> SLO/incident)
 
 Phát triển sự nghiệp: career-roadmap  (+ dùng templates/ viết ADR mỗi quyết định thật)
 ```
