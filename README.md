@@ -12,6 +12,7 @@
 | Bạn muốn... | Đọc |
 |-------------|-----|
 | Tra nhanh 1 câu lệnh (docker/k8s/git/aws/network...) | [cheatsheet.md](./cheatsheet.md) |
+| Dùng thành thạo Claude Code (command/hook/MCP/subagent) | [claude-code-guide.md](./claude-code-guide.md) |
 | Vận hành / xử lý sự cố cluster K8s | [k8s-operations-playbook.md](./k8s-operations-playbook.md) |
 | Học AWS để thi cert (SAA/SAP/SysOps/DevOps) | [cloud/aws/](./cloud/aws/README.md) |
 | Định hình hướng đi AI (MLOps/SRE/DevSecOps) | [tracks/](./tracks/README.md) |
@@ -25,6 +26,7 @@
 ### ⚡ Tra cứu nhanh
 - **[cheatsheet.md](./cheatsheet.md)** — 31 nhóm lệnh: Docker, Compose, Helm, kubectl, grep, troubleshooting Linux, Git, Database, SSH, HTTP/SSL, jq/yq, IaC, cloud CLI, monitoring, message queue, nginx, firewall, profiling, ArgoCD, CI/CD, secrets, systemd, container runtime, service mesh, k8s TUI...
 - **[docker.txt](./docker.txt)** — bộ alias shell gốc.
+- **[claude-code-guide.md](./claude-code-guide.md)** — toàn bộ slash command, CLI flags, custom command, CLAUDE.md, subagent, skill, hook, MCP, permission mode, git worktree, headless/CI, quản lý chi phí, phím tắt, IDE integration + tips&tricks dùng Claude Code hiệu quả trong công việc.
 
 ### ☸️ Kubernetes — vận hành & production
 - **[k8s-operations-playbook.md](./k8s-operations-playbook.md)** — playbook sự cố (Pod/Node/Network/Storage/Control-plane/Scaling) theo cấu trúc *triệu chứng → chẩn đoán → xử lý → root cause → phòng ngừa*; backup/DR; reliability; observability; security; lộ trình DevOps Lead.
