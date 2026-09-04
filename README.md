@@ -17,6 +17,7 @@
 | Học AWS để thi cert (SAA/SAP/SysOps/DevOps) | [cloud/aws/](./cloud/aws/README.md) |
 | Định hình hướng đi AI (MLOps/SRE/DevSecOps) | [tracks/](./tracks/README.md) |
 | Phát triển sự nghiệp lên Architect/Lead | [career-roadmap.md](./career-roadmap.md) |
+| Lên **Senior → Lead DevSecOps** trong **ngành tài chính** | [tracks/devsecops-finance-career.md](./tracks/devsecops-finance-career.md) |
 | Luyện viết ADR / design doc (trình sếp) | [templates/](./templates/README.md) |
 
 ---
@@ -43,11 +44,13 @@
 - **[tracks/](./tracks/README.md)** — định hình & đào sâu hướng AI:
   - [roadmap-ai-platform-engineer](./tracks/roadmap-ai-platform-engineer.md) — 🎯 lộ trình phân lớp + LLMOps vs MLOps *(bắt đầu ở đây)*
   - Hướng nghề: [mlops](./tracks/mlops.md) · [sre](./tracks/sre.md) · [devsecops](./tracks/devsecops.md)
+  - Sự nghiệp chuyên sâu: [devsecops-finance-career](./tracks/devsecops-finance-career.md) — 💼 Senior → Lead DevSecOps trong ngân hàng/fintech (nghiệp vụ tài chính + tuân thủ + kế hoạch 24 tháng)
   - Kỹ thuật sâu: [ml-serving-k8s](./tracks/ml-serving-k8s.md) (KServe/GPU) · [llmops-end-to-end](./tracks/llmops-end-to-end.md) (RAG+vLLM+eval+guardrails) · [fine-tuning-lora](./tracks/fine-tuning-lora.md) · [vector-db-scale](./tracks/vector-db-scale.md)
   - Nền tảng: [ml-concepts-explained](./tracks/ml-concepts-explained.md) — phân biệt train/inference/fine-tune/RAG...
 
 ### 📈 Sự nghiệp & kỹ năng
 - **[career-roadmap.md](./career-roadmap.md)** — Middle → Senior → Staff/Architect (IC track) → Leadership: skill matrix, checklist lên cấp, kế hoạch 12 tháng, ra quyết định kiến trúc.
+- **[tracks/devsecops-finance-career.md](./tracks/devsecops-finance-career.md)** — 💼 lộ trình **Senior DevSecOps → Lead DevSecOps** cho domain tài chính: ba tuyến phòng vệ, nghiệp vụ dòng tiền, bản đồ điều khoản → control → bằng chứng, kế hoạch 24 tháng, KPI, mẫu risk acceptance, cạm bẫy.
 - **[devops-fast-track.md](./devops-fast-track.md)** — kế hoạch 90 ngày lên tay nhanh: mental models + 11 break-and-fix lab + capstone.
 
 ### 📝 Templates (luyện viết & trình sếp)
@@ -68,6 +71,9 @@ Chuyển hướng AI:      tracks/roadmap-ai-platform-engineer -> mlops -> ml-se
                       (bổ sung: sre, devsecops)
 
 Phát triển sự nghiệp: career-roadmap  (+ dùng templates/ viết ADR mỗi quyết định thật)
+
+DevSecOps ngành TC:   tracks/devsecops -> tracks/devsecops-finance-career
+                      (nghiệp vụ dòng tiền + tuân thủ TT09/TT50/PCI/SWIFT -> Senior -> Lead)
 ```
 
 ---

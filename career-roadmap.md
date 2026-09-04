@@ -3,11 +3,17 @@
 > Lộ trình phát triển sự nghiệp từ Middle DevOps đi lên, **nhấn mạnh nhánh IC/Architect (kỹ thuật sâu)**,
 > kèm bản đồ nhánh Management để bạn chọn có chủ đích về sau.
 > Đọc kèm: [`devops-fast-track.md`](./devops-fast-track.md) (kỹ năng kỹ thuật) · [`k8s-operations-playbook.md`](./k8s-operations-playbook.md) · [`cloud/aws/`](./cloud/aws/)
+>
+> 🎯 **Đi nhánh DevSecOps trong ngành tài chính (ngân hàng/fintech/thanh toán)?**
+> File này là khung *chung*. Lộ trình **Senior DevSecOps → Lead DevSecOps** cụ thể (nghiệp vụ tài chính,
+> bản đồ tuân thủ TT 09/TT 50/PCI DSS/SWIFT, kế hoạch 24 tháng, KPI, hồ sơ thăng cấp) nằm ở file riêng:
+> **[`tracks/devsecops-finance-career.md`](./tracks/devsecops-finance-career.md)** — đọc phần [2.5](#25-nhánh-devsecops-ngành-tài-chính-điểm-vào-lộ-trình-chi-tiết) bên dưới trước để biết mình đang ở đâu trên bản đồ.
 
 ## 📑 Mục lục
 - [0. Nguyên lý cốt lõi](#0-nguyên-lý-cốt-lõi-mỗi-cấp--đổi-thứ-bạn-tối-ưu)
 - [1. Bản đồ hai nhánh: IC vs Management](#1-bản-đồ-hai-nhánh-ic-vs-management)
 - [2. Nhánh IC/Architect — đi sâu](#2-nhánh-icarchitect--đi-sâu-trọng-tâm)
+- [2.5 Nhánh DevSecOps ngành tài chính (điểm vào lộ trình chi tiết)](#25-nhánh-devsecops-ngành-tài-chính-điểm-vào-lộ-trình-chi-tiết)
 - [3. Kỹ năng ra quyết định kiến trúc](#3-kỹ-năng-ra-quyết-định-kiến-trúc-lõi-của-architect)
 - [4. Skill Matrix theo cấp (tự chấm điểm)](#4-skill-matrix-theo-cấp-tự-chấm-điểm)
 - [5. Kỹ năng mềm — nút thắt thật sự](#5-kỹ-năng-mềm--nút-thắt-thật-sự)
@@ -106,6 +112,58 @@ Làm task nhanh           ->  Đặt CHUẨN (golden path) để 10 team làm nh
 "Tôi biết cách làm"      ->  "Tôi khiến team không cần hỏi tôi vẫn làm đúng"
 ```
 Đây chính là **Platform Engineering** — nơi giá trị Architect DevOps cao nhất.
+
+---
+
+## 2.5 Nhánh DevSecOps ngành tài chính (điểm vào lộ trình chi tiết)
+
+Nếu mục tiêu của bạn là **Senior DevSecOps → Lead DevSecOps** trong ngân hàng/fintech/thanh toán, thì khung
+chung ở trên vẫn đúng, nhưng **hai thứ thay đổi hoàn toàn**: cách bạn được đánh giá, và người bạn phải thuyết phục.
+
+### 2.5.1 Chức danh DevSecOps ánh xạ vào thang cấp thế nào
+
+| Chức danh thực tế | Tương đương thang chung | Bạn được đo bằng |
+|---|---|---|
+| DevSecOps Engineer | Middle | Làm xong control được giao, đúng chuẩn có sẵn |
+| **Senior DevSecOps Engineer** | Senior | **Sở hữu 1–2 miền rủi ro end-to-end**, tự quyết đánh đổi, dev tin dùng thứ bạn làm |
+| **Lead DevSecOps** | Staff / Tech Lead | **Chuẩn + con người + ngân sách + trách nhiệm trước kiểm toán**; kết quả tạo ra QUA người khác |
+| Security Architect / Head of Platform Security | Principal / Senior Manager | Kiến trúc bảo mật xuyên hệ thống, hoặc quản lý nhiều đội |
+
+> Lưu ý: **Lead DevSecOps là ngã ba đường.** Từ đây rẽ được cả hai nhánh — IC (Security Architect,
+> giữ chiều sâu kỹ thuật) hoặc Management (Head of Security/CISO track). Đừng chọn vội; làm Lead 1–2 năm rồi mới chọn.
+
+### 2.5.2 Ba điều khác biệt so với DevOps thuần (đây là chỗ hay bị "mù mờ")
+
+```text
+1. BẠN Ở TUYẾN 1, KHÔNG PHẢI TUYẾN 2.
+   Ngân hàng vận hành theo Ba tuyến phòng vệ: Tuyến 1 (vận hành, sở hữu rủi ro — bạn ở đây),
+   Tuyến 2 (Risk/Compliance/ATTT — đặt chuẩn, duyệt ngoại lệ), Tuyến 3 (Kiểm toán nội bộ).
+   -> Bạn THỰC THI chuẩn. Muốn đổi chuẩn thì phải THUYẾT PHỤC tuyến 2 bằng ngôn ngữ rủi ro.
+   -> Đòn bẩy lên Lead: là người DUY NHẤT nói được cả hai ngôn ngữ (pipeline + điều khoản).
+
+2. THÀNH TÍCH PHẢI CÓ BẰNG CHỨNG, KHÔNG PHẢI CHỈ CÓ KẾT QUẢ.
+   Việc không xuất được bằng chứng cho kiểm toán = việc không tồn tại trong hồ sơ thăng cấp.
+   -> Thiết kế control sao cho BẰNG CHỨNG TỰ SINH RA từ pipeline/policy engine.
+
+3. NGHIỆP VỤ TÀI CHÍNH ĐỔI CÁCH BẠN THREAT MODEL.
+   Threat model theo DÒNG TIỀN (giao dịch đi qua hop nào, hop nào chạm tiền thật, ai đối soát),
+   không theo sơ đồ hạ tầng. Đây là thứ phân biệt Senior thật với "Senior biết dùng tool".
+```
+
+### 2.5.3 Ba đòn bẩy quy ra tiền được ngay (làm sớm nhất có thể)
+
+```text
+1. THU HẸP PHẠM VI PCI (phân vùng mạng + tokenization) -> giảm chi phí & công sức audit hằng năm.
+2. XÓA DỮ LIỆU THẬT KHỎI NON-PROD (masking)          -> đóng rủi ro rò rỉ lớn nhất thực tế + tuân thủ Luật BVDLCN.
+3. TỰ ĐỘNG HÓA THU THẬP BẰNG CHỨNG AUDIT             -> giảm hàng trăm giờ công mỗi kỳ, thấy được tận cấp lãnh đạo.
+```
+
+👉 **Chi tiết đầy đủ** — nghiệp vụ tài chính phải thuộc, bản đồ tuân thủ (TT 09/2020, TT 50/2024, Luật BVDLCN
+91/2025, PCI DSS v4.0.1, SWIFT CSCF v2026, ISO 27001, NIST SSDF) → control → bằng chứng, checklist năng lực
+Senior, checklist sẵn sàng lên Lead, kế hoạch 24 tháng theo quý, bộ KPI, hồ sơ thăng cấp, thứ tự chứng chỉ,
+mẫu risk acceptance, 90 ngày đầu và cạm bẫy đặc thù:
+**→ [`tracks/devsecops-finance-career.md`](./tracks/devsecops-finance-career.md)**
+(nền kỹ thuật DevSecOps: [`tracks/devsecops.md`](./tracks/devsecops.md))
 
 ---
 
