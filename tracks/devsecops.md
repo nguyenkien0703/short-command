@@ -2,6 +2,10 @@
 
 > DevSecOps = "Security as Code" — đưa bảo mật vào MỌI giai đoạn (shift-left) thay vì kiểm tra cuối cùng.
 > Cốt lõi: bảo mật là **trách nhiệm của mọi người + được tự động hóa**, không phải cổng gác của 1 team riêng.
+>
+> 🎯 **Muốn lộ trình sự nghiệp Senior → Lead DevSecOps (ngành tài chính/ngân hàng)?**
+> Xem [`career-devsecops-finance.md`](../career-devsecops-finance.md) — kế hoạch theo quý, domain nghiệp vụ
+> ngân hàng, bản đồ tuân thủ NHNN/PCI/SWIFT, portfolio và câu hỏi phỏng vấn. File này là phần **kỹ thuật nền**.
 
 ## 1. Mindset — shift-left & tự động hóa
 

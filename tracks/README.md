@@ -7,6 +7,7 @@
 - [mlops.md](./mlops.md) — Vận hành hệ thống ML/AI (gần bạn nhất)
 - [sre.md](./sre.md) — Site Reliability Engineering (độ tin cậy ở quy mô)
 - [devsecops.md](./devsecops.md) — Bảo mật dịch chuyển vào toàn vòng đời
+  - ↳ Sự nghiệp: [career-devsecops-finance.md](../career-devsecops-finance.md) — Senior → Lead DevSecOps trong ngành tài chính (nghiệp vụ ngân hàng + tuân thủ NHNN/PCI/SWIFT)
 - **[roadmap-ai-platform-engineer.md](./roadmap-ai-platform-engineer.md)** — 🎯 **Lộ trình phân lớp** MLOps→SRE→DevSecOps + LLMOps vs MLOps (bắt đầu ở đây để định hình)
 - [ml-serving-k8s.md](./ml-serving-k8s.md) — 🔧 Kỹ thuật: **serving ML trên K8s (KServe/GPU)** — thế mạnh khác biệt của bạn
 - [llmops-end-to-end.md](./llmops-end-to-end.md) — 🔧 Kỹ thuật: **LLMOps end-to-end** (RAG + vLLM + eval + guardrails)
