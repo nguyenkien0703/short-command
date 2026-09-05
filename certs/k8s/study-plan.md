@@ -13,6 +13,12 @@
    Từ tuần thứ 3 trở đi, mọi lab đều bấm giờ.
 3. **Một cluster kubeadm thật.** kind/minikube không làm được: upgrade, etcd restore,
    static pod, kubelet config, AppArmor. Dựng 2 VM Ubuntu (2 vCPU/4GB mỗi máy) là đủ.
+
+   > ⚠️ **Đã có sẵn cụm RKE2 / k3s / EKS / GKE?** Chúng **không thay được** cụm kubeadm cho
+   > phần control plane — RKE2 còn dạy phản xạ *sai* (sửa `config.yaml` thay vì sửa manifest).
+   > Nếu bạn đang có cụm thật và muốn lộ trình bám vào chúng:
+   > 👉 **[lab-2-cum-rke2-calico.md](./lab-2-cum-rke2-calico.md)** — bản đồ domain nào luyện ở cụm nào,
+   > bảng dịch RKE2 ↔ kubeadm, và lộ trình tuần đã gắn sẵn tên cụm.
 4. **Ghi lại mọi lỗi bạn mắc** vào file domain tương ứng trong repo này. Đọc lại trước ngày thi.
 5. **Săn voucher.** Cyber Monday (thứ Hai cuối tháng 11) giảm ~30–50%. Mua trước, thi sau —
    voucher thường có hạn 12 tháng.

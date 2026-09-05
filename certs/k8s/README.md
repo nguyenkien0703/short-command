@@ -15,6 +15,7 @@
 |------|----------|
 | [exam-day-playbook.md](./exam-day-playbook.md) | **Chiến thuật phòng thi**: check-in, môi trường PSI, alias/vim/tmux setup, quản lý thời gian, copy-paste, tra docs |
 | [study-plan.md](./study-plan.md) | Lộ trình 12 tuần CKA → 8 tuần CKS, lịch học theo tuần, mốc kiểm tra |
+| [lab-2-cum-rke2-calico.md](./lab-2-cum-rke2-calico.md) | **Đã có cụm thật (RKE2+Cilium / Calico)?** Bản đồ domain↔cụm, bảng dịch RKE2 ↔ kubeadm, 5 chỗ RKE2 dạy sai phản xạ, lộ trình tuần gắn sẵn tên cụm |
 | [resources.md](./resources.md) | Nguồn học: cộng đồng VN (devops.vn, Viblo) + quốc tế (KodeKloud, Killercoda, killer.sh), mẹo săn voucher |
 
 ### CKA — 5 domain
