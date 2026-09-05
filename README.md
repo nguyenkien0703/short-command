@@ -53,7 +53,7 @@
 - **[devops-fast-track.md](./devops-fast-track.md)** — kế hoạch 90 ngày lên tay nhanh: mental models + 11 break-and-fix lab + capstone.
 
 ### 📝 Templates (luyện viết & trình sếp)
-- **[templates/](./templates/README.md)** — [adr-template](./templates/adr-template.md) · [design-doc-template](./templates/design-doc-template.md) · [ví dụ ADR đã điền](./templates/examples/ADR-0001-transit-gateway-vs-peering.md).
+- **[templates/](./templates/README.md)** — [adr-template](./templates/adr-template.md) · [design-doc-template](./templates/design-doc-template.md) · [threat-model-template](./templates/threat-model-template.md) (STRIDE + ví dụ đã điền cho API chuyển tiền) · [risk-acceptance-template](./templates/risk-acceptance-template.md) (hồ sơ ngoại lệ có hạn) · [ví dụ ADR đã điền](./templates/examples/ADR-0001-transit-gateway-vs-peering.md).
 
 ---
 

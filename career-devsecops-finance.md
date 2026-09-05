@@ -14,6 +14,8 @@
 
 ## 📑 Mục lục
 - [0. Vì sao DevSecOps tài chính là một nghề riêng](#0-vì-sao-devsecops-tài-chính-là-một-nghề-riêng)
+  - [0.1 Bạn ngồi ở đâu: mô hình Ba tuyến phòng vệ](#01-bạn-ngồi-ở-đâu-mô-hình-ba-tuyến-phòng-vệ)
+  - [0.2 Phân biệt các vai lân cận](#02-phân-biệt-các-vai-lân-cận-đừng-nhận-nhầm-việc)
 - [1. Thang cấp bậc — định nghĩa hết mơ hồ](#1-thang-cấp-bậc--định-nghĩa-hết-mơ-hồ)
 - [2. Ma trận năng lực Senior vs Lead (tự chấm điểm)](#2-ma-trận-năng-lực-senior-vs-lead-tự-chấm-điểm)
 - [3. DOMAIN NGHIỆP VỤ TÀI CHÍNH — phần quan trọng nhất](#3-domain-nghiệp-vụ-tài-chính--phần-quan-trọng-nhất)
@@ -22,15 +24,23 @@
   - [3.3 20 khái niệm nghiệp vụ bắt buộc phải hiểu](#33-20-khái-niệm-nghiệp-vụ-bắt-buộc-phải-hiểu)
   - [3.4 Bản đồ tuân thủ Việt Nam + quốc tế](#34-bản-đồ-tuân-thủ-việt-nam--quốc-tế)
   - [3.5 Dịch điều khoản → control → bằng chứng tự động](#35-dịch-điều-khoản--control--bằng-chứng-tự-động-kỹ-năng-đắt-nhất)
+  - [3.6 Phân cấp độ hệ thống thông tin (1–5)](#36-phân-cấp-độ-hệ-thống-thông-tin-15--thứ-quyết-định-control-bắt-buộc)
 - [4. Giai đoạn 1: → Senior DevSecOps (12–18 tháng)](#4-giai-đoạn-1--senior-devsecops-1218-tháng)
 - [5. Giai đoạn 2: Senior → Lead DevSecOps (12–18 tháng)](#5-giai-đoạn-2-senior--lead-devsecops-1218-tháng)
-- [6. Portfolio: 12 hiện vật chứng minh năng lực](#6-portfolio-12-hiện-vật-chứng-minh-năng-lực)
-- [7. Kế hoạch 90 ngày đầu tiên (bắt đầu từ thứ Hai)](#7-kế-hoạch-90-ngày-đầu-tiên-bắt-đầu-từ-thứ-hai)
-- [8. Chứng chỉ — xếp theo ROI trong ngành tài chính](#8-chứng-chỉ--xếp-theo-roi-trong-ngành-tài-chính)
-- [9. Phỏng vấn: câu hỏi thật + cách trả lời](#9-phỏng-vấn-câu-hỏi-thật--cách-trả-lời)
-- [10. 10 cái bẫy khiến bạn kẹt ở Senior](#10-10-cái-bẫy-khiến-bạn-kẹt-ở-senior)
-- [11. Tự đo tiến độ hằng quý](#11-tự-đo-tiến-độ-hằng-quý)
-- [12. Tài nguyên học](#12-tài-nguyên-học)
+- [6. Vận hành thực chiến — bốn thứ tài liệu khác không nói](#6-vận-hành-thực-chiến--bốn-thứ-tài-liệu-khác-không-nói)
+  - [6.1 SLA vá lỗi & ma trận ưu tiên](#61-sla-vá-lỗi--ma-trận-ưu-tiên-đừng-dùng-cvss-làm-ưu-tiên)
+  - [6.2 Triển khai guardrail mà không gây sự cố](#62-triển-khai-guardrail-mà-không-gây-sự-cố)
+  - [6.3 Nhịp của tổ chức tài chính](#63-nhịp-của-tổ-chức-tài-chính--đề-xuất-đúng-lúc-thì-được-duyệt)
+  - [6.4 Ngôn ngữ rủi ro — cấu trúc 5 bước](#64-ngôn-ngữ-rủi-ro--cấu-trúc-5-bước-để-nói-chuyện-với-lãnh-đạo)
+- [7. Portfolio: 12 hiện vật chứng minh năng lực](#7-portfolio-12-hiện-vật-chứng-minh-năng-lực)
+- [8. Kế hoạch 90 ngày đầu tiên (bắt đầu từ thứ Hai)](#8-kế-hoạch-90-ngày-đầu-tiên-bắt-đầu-từ-thứ-hai)
+- [9. Chứng chỉ — xếp theo ROI trong ngành tài chính](#9-chứng-chỉ--xếp-theo-roi-trong-ngành-tài-chính)
+- [10. Phỏng vấn: câu hỏi thật + cách trả lời](#10-phỏng-vấn-câu-hỏi-thật--cách-trả-lời)
+- [11. 10 cái bẫy khiến bạn kẹt ở Senior](#11-10-cái-bẫy-khiến-bạn-kẹt-ở-senior)
+- [12. Tự đo tiến độ hằng quý](#12-tự-đo-tiến-độ-hằng-quý)
+- [13. Từ điển Anh–Việt (tra cứu & phỏng vấn)](#13-từ-điển-anhviệt-để-tra-cứu--phỏng-vấn)
+- [14. Tài nguyên học](#14-tài-nguyên-học)
+- [Mẫu văn bản đi kèm](#mẫu-văn-bản-đi-kèm)
 
 ---
 
@@ -77,6 +87,55 @@ Thiếu góc 3 -> "DevSecOps giỏi nhưng không hiểu ngân hàng" — làm �
 
 > **Kết luận định hướng:** con đường lên Lead của bạn **không phải** là học thêm 5 công cụ scan.
 > Nó là lấp góc thứ 3 (nghiệp vụ + tuân thủ) trong khi giữ vững góc 1 và 2.
+
+### 0.1 Bạn ngồi ở đâu: mô hình Ba tuyến phòng vệ
+
+Mọi tổ chức tài chính vận hành theo **Three Lines of Defense**. Không hiểu mô hình này thì bạn sẽ liên tục
+"va" vào người khác mà không hiểu vì sao — và sẽ đề xuất sai cửa.
+
+```text
+TUYẾN 1 — VẬN HÀNH & SỞ HỮU RỦI RO        ◄── BẠN Ở ĐÂY
+  Khối CNTT, Trung tâm hạ tầng, Platform, DevSecOps, các team ứng dụng
+  Vai trò: TỰ nhận diện và TỰ kiểm soát rủi ro trong hệ thống mình vận hành.
+
+TUYẾN 2 — GIÁM SÁT RỦI RO & TUÂN THỦ
+  Phòng An toàn thông tin (ISO), Quản lý rủi ro hoạt động, Tuân thủ, DPO
+  Vai trò: ĐẶT chuẩn, THẨM ĐỊNH, PHÊ DUYỆT ngoại lệ, báo cáo cơ quan quản lý.
+
+TUYẾN 3 — KIỂM TOÁN
+  Kiểm toán nội bộ + kiểm toán độc lập / QSA / thanh tra NHNN
+  Vai trò: KIỂM TRA cả tuyến 1 và tuyến 2. Ra "audit finding" có thời hạn khắc phục.
+```
+
+**Bốn hiểu lầm phổ biến — và thực tế:**
+
+| Bạn hay nghĩ | Thực tế trong tổ chức tài chính |
+|---|---|
+| "Tôi làm DevSecOps nên tôi là security, tôi đặt chuẩn" | DevSecOps thường ở **tuyến 1**. Bạn *thực thi* chuẩn; tuyến 2 *đặt* chuẩn. Muốn đổi chuẩn phải **thuyết phục tuyến 2 bằng dữ liệu**, không tự quyết |
+| "Chặn build khi có CVE Critical là xong việc" | Chặn mà **không có quy trình ngoại lệ có chủ sở hữu và có hạn** thì business sẽ vượt mặt bạn, hoặc bạn thành kẻ cản trở. Xem [`templates/risk-acceptance-template.md`](./templates/risk-acceptance-template.md) |
+| "Audit finding là việc của Compliance" | Finding thuộc **hệ thống bạn vận hành = việc của bạn**. Đóng finding đúng hạn là chỉ số được nhìn tận cấp Ban điều hành — và là cơ hội hiển thị lớn nhất của bạn |
+| "Cứ làm tốt kỹ thuật rồi sẽ được ghi nhận" | Thứ được ghi nhận là **rủi ro giảm được, đo được, có bằng chứng**. Việc không có bằng chứng = việc không tồn tại |
+
+> 🔑 **Đòn bẩy lớn nhất để lên Lead:** trở thành người *duy nhất* nói trôi chảy **cả hai ngôn ngữ** —
+> ngôn ngữ pipeline/hạ tầng (tuyến 1) và ngôn ngữ rủi ro/điều khoản (tuyến 2).
+> Người đó tự nhiên thành đầu mối. Đầu mối thì thành Lead.
+
+### 0.2 Phân biệt các vai lân cận (đừng nhận nhầm việc)
+
+Trong ngân hàng, ranh giới vai trò rõ hơn ở công ty sản phẩm. Nhận nhầm việc = làm nhiều mà không được ghi nhận.
+
+```text
+DevSecOps Engineer : bảo mật TRONG pipeline & hạ tầng. Guardrail, automation, golden path.  ◄ bạn
+AppSec Engineer    : bảo mật TRONG code ứng dụng. Threat model sâu, secure code review, hỗ trợ dev sửa.
+SecOps / SOC       : phát hiện & phản ứng. SIEM, threat hunting, trực 24/7, điều tra sự cố.
+GRC / Compliance   : khung, chính sách, ánh xạ điều khoản, làm việc với NHNN/QSA/kiểm toán.
+Security Architect : thiết kế mô hình bảo mật cho hệ thống mới, quyết định one-way-door.
+Fraud / Risk tech  : chống gian lận GIAO DỊCH — rất riêng của tài chính, không phải infosec truyền thống.
+IT Audit           : kiểm tra bạn. Không phải đối thủ — hiểu cách họ làm việc thì đời bạn dễ hơn nhiều.
+```
+
+**Lead DevSecOps phải giao tiếp trôi chảy với cả 7 vai trên**, và thường kiêm một phần Security Architect.
+Đây là lý do kỹ năng mềm quyết định ngưỡng Senior → Lead nhiều hơn kỹ thuật.
 
 ---
 
@@ -378,6 +437,53 @@ Bạn không cần thuộc lòng. Bạn cần **biết cái nào áp dụng cho 
 **Quy tắc vàng:** *Nếu một control không tự sinh ra bằng chứng, thì đến kỳ kiểm toán bạn sẽ phải làm thủ công —
 và đó là lúc mọi người ghét bảo mật.* Lead giỏi được nhận diện bằng việc **kỳ kiểm toán trở nên nhàm chán**.
 
+**Cách đọc một thông tư cho hiệu quả** (kỹ năng meta, ít ai dạy):
+```text
+1. ĐỌC ĐIỀU 1–3 TRƯỚC: phạm vi, đối tượng áp dụng, giải thích từ ngữ.
+   -> Trả lời câu quan trọng nhất: "cái này CÓ áp dụng cho hệ thống của tôi không?"
+2. TÌM ĐỘNG TỪ BẮT BUỘC: "phải", "tối thiểu", "không được", "định kỳ".
+   Chúng là control. Câu mô tả chung chung thì không phải.
+3. TÌM CON SỐ: tần suất (hằng năm/quý), thời hạn lưu trữ, ngưỡng giá trị.
+   Con số = thứ auditor sẽ đo bạn. Ghi lại hết.
+4. TÌM "THEO QUY ĐỊNH CỦA PHÁP LUẬT": đây là con trỏ sang văn bản khác — đi theo nó.
+5. VỚI MỖI ĐIỀU KHOẢN BẮT BUỘC, HỎI 3 CÂU:
+   (a) Hiện ta có làm không? (b) Nếu có, bằng chứng nằm ở đâu? (c) Sinh bằng chứng đó tự động được không?
+6. GHI VÀO BẢNG 5 CỘT Ở TRÊN. Sau 20 dòng, bạn hiểu thông tư đó hơn phần lớn đồng nghiệp.
+```
+
+### 3.6 Phân cấp độ hệ thống thông tin (1–5) — thứ quyết định control bắt buộc
+
+Đây là khái niệm **đặc thù Việt Nam** mà tài liệu quốc tế không có, và là chỗ nhiều kỹ sư mơ hồ nhất.
+Theo Luật An toàn thông tin mạng 86/2015, **NĐ 85/2016** và **TCVN 11930**, mọi hệ thống thông tin
+được phân thành 5 cấp độ theo mức độ hậu quả nếu bị xâm hại. **Cấp độ quyết định danh mục control bắt buộc.**
+
+| Cấp độ | Ý nghĩa (tóm lược) | Ví dụ trong ngân hàng | Hệ quả với bạn |
+|:--:|---|---|---|
+| **1** | Hậu quả nhỏ, phạm vi hẹp | Trang thông tin nội bộ, công cụ phụ trợ | Control cơ bản |
+| **2** | Ảnh hưởng quyền lợi tổ chức/cá nhân | Hệ thống nội bộ không chạm tiền/PII nhạy cảm | Control cơ bản + quản lý truy cập |
+| **3** | Ảnh hưởng nghiêm trọng tới sản xuất kinh doanh, quyền lợi nhiều người | **Phần lớn hệ thống ngân hàng trọng yếu**: Internet/Mobile Banking, hệ thống thanh toán, kho dữ liệu KH | Đầy đủ: phân vùng, giám sát, DR có diễn tập, kiểm tra ATTT định kỳ, quản lý thay đổi chặt |
+| **4** | Ảnh hưởng tới lợi ích công cộng, trật tự xã hội | Hệ thống thanh toán quy mô lớn, hạ tầng dùng chung | Như cấp 3 + yêu cầu khắt khe hơn về kiểm tra, giám sát, báo cáo |
+| **5** | Ảnh hưởng quốc phòng, an ninh quốc gia | Hạ tầng thông tin trọng yếu quốc gia | Mức cao nhất, có yêu cầu riêng của cơ quan chuyên trách |
+
+> ⚠️ Bảng này là **bản đồ định hướng, không phải căn cứ pháp lý**. Hồ sơ đề xuất cấp độ phải do đơn vị
+> lập và được cấp có thẩm quyền phê duyệt. Luôn đối chiếu NĐ 85/2016 + TCVN 11930 + hướng dẫn nội bộ.
+
+**Vì sao Senior phải nắm chắc phần này:**
+
+```text
+1. NHẦM CẤP ĐỘ = NHẦM TOÀN BỘ THIẾT KẾ. Hệ thống cấp 3 mà làm control cấp 1 -> audit finding chắc chắn.
+   Ngược lại, bọc cấp 4 cho một công cụ nội bộ -> lãng phí và bị coi là không hiểu việc.
+2. CẤP ĐỘ LÀ CƠ SỞ ĐỂ BẠN NÓI "KHÔNG" CÓ TRỌNG LƯỢNG.
+   "Việc này không làm được vì hệ thống ở cấp 3, theo quy định phải có X" — mạnh hơn "em thấy rủi ro".
+3. CẤP ĐỘ QUYẾT ĐỊNH NGÂN SÁCH & ƯU TIÊN. Khi bạn xếp hạng 40 hệ thống để phân bổ nguồn lực (việc của Lead),
+   cấp độ là trục xếp hạng đầu tiên, trước cả "có tiền không / có PII không".
+4. ĐÂY LÀ CÂU HỎI PHỎNG VẤN LỌC NGƯỜI. Ứng viên nói được "hệ thống tôi phụ trách ở cấp 3, nên chúng tôi
+   phải có A, B, C" thì lập tức khác hẳn ứng viên chỉ kể tên công cụ.
+```
+
+**Bài tập:** liệt kê mọi hệ thống bạn chạm tới, gắn cấp độ dự kiến + lý do, rồi **đem đi đối chiếu với
+phòng ATTT (tuyến 2)**. Cuộc trao đổi đó vừa sửa hiểu biết của bạn, vừa là lần tiếp xúc tốt với tuyến 2.
+
 ---
 
 ## 4. Giai đoạn 1: → Senior DevSecOps (12–18 tháng)
@@ -424,6 +530,7 @@ NGHIỆP VỤ & TUÂN THỦ
 ```text
 KỸ THUẬT
   [ ] Threat model STRIDE cho 1 hệ thống có luồng tiền. Không dùng template rỗng — bám vào 7 chặng của bạn.
+      -> Dùng templates/threat-model-template.md (có ví dụ đã điền cho API chuyển tiền để đối chiếu).
   [ ] Viết 3 ADR bảo mật thật (dùng templates/adr-template.md). Ví dụ đề tài:
       "Tokenization tại tầng nào để thu hẹp phạm vi PCI", "Workload identity thay vì static key",
       "Fail-open hay fail-closed khi fraud engine chết".
@@ -443,6 +550,7 @@ KỸ THUẬT
   [ ] Evidence as code: dashboard tự sinh trạng thái control (bao nhiêu % service đã ký image,
       có NetworkPolicy, đạt SLA vá lỗi). Xuất được báo cáo cho kiểm toán KHÔNG cần làm tay.
   [ ] Xây quy trình quản lý lỗ hổng có SLA + đường ngoại lệ CÓ HẠN (ngoại lệ phải tự hết hạn).
+      -> Bảng SLA & ma trận ưu tiên: xem mục 6.1. Mẫu hồ sơ ngoại lệ: templates/risk-acceptance-template.md.
   [ ] Tham gia ít nhất 1 kỳ kiểm toán/đánh giá thật với vai trò người cung cấp bằng chứng.
   [ ] Nhân rộng pipeline chuẩn ra 5+ service.
   [ ] Viết postmortem cho 1 sự cố bảo mật (kể cả sự cố nhỏ) theo hướng không đổ lỗi.
@@ -519,7 +627,161 @@ CHECKLIST SẴN SÀNG LÊN LEAD:
 
 ---
 
-## 6. Portfolio: 12 hiện vật chứng minh năng lực
+## 6. Vận hành thực chiến — bốn thứ tài liệu khác không nói
+
+Bốn mục dưới đây là chỗ **lý thuyết gặp thực tế**. Nắm được chúng, bạn tránh được hầu hết
+những cú vấp khiến người giỏi kỹ thuật vẫn bị đánh giá là "chưa chín".
+
+### 6.1 SLA vá lỗi & ma trận ưu tiên (đừng dùng CVSS làm ưu tiên)
+
+Sai lầm phổ biến: xếp ưu tiên theo **điểm CVSS**. CVSS đo mức nghiêm trọng *lý thuyết*, không đo
+rủi ro *thật* trong kiến trúc của bạn. Một CVE 9.8 trong thư viện không nằm trên đường request
+ít nguy hiểm hơn một CVE 6.5 ở API hướng Internet chạm dữ liệu khách hàng.
+
+**Công thức ưu tiên dùng được ngay:**
+
+```text
+Mức ưu tiên = Mức nghiêm trọng × Độ phơi nhiễm × Độ nhạy dữ liệu × Cấp độ hệ thống
+                                        ▲
+                  yếu tố quan trọng nhất, và là yếu tố hay bị bỏ qua nhất
+```
+
+| Độ phơi nhiễm | Nghĩa | Hệ số |
+|---|---|:--:|
+| Hướng Internet, không cần xác thực | Ai cũng chạm được | ×3 |
+| Hướng Internet, cần xác thực | Cần tài khoản hợp lệ | ×2 |
+| Nội bộ, nhiều bên gọi | Cần đã vào được mạng trong | ×1 |
+| Nội bộ, chỉ 1–2 dịch vụ gọi, có NetworkPolicy | Cần chiếm dịch vụ khác trước | ×0.5 |
+| **Không nằm trên đường thực thi** (thư viện có nhưng không gọi tới) | Về lý thuyết không khai thác được | ×0.2 |
+
+> Yếu tố cuối cùng gọi là **reachability**. Công cụ SCA hiện đại có phân tích này. Bật nó lên
+> thường giảm 60–80% số lỗ hổng "phải xử lý" — và đó là cách bạn lấy lại thiện cảm của đội phát triển.
+
+**Bảng SLA mẫu** (điều chỉnh theo tổ chức, nhưng phải có **con số** và phải được tuyến 2 duyệt):
+
+| Mức ưu tiên | Hệ thống cấp 3–5, hướng Internet | Hệ thống nội bộ | Hành động khi quá hạn |
+|---|:--:|:--:|---|
+| **Nghiêm trọng** (đang bị khai thác ngoài thực địa) | **24 giờ** | 72 giờ | Kích hoạt quy trình sự cố, báo cáo lãnh đạo trong ngày |
+| **Cao** | 7 ngày | 30 ngày | Leo thang tới chủ sở hữu hệ thống; chặn release tính năng mới |
+| **Trung bình** | 30 ngày | 90 ngày | Đưa vào backlog sprint kế tiếp, báo cáo hằng tháng |
+| **Thấp** | 90 ngày | Chu kỳ nâng cấp thường kỳ | Theo dõi, không leo thang |
+
+```text
+BỐN QUY TẮC LÀM SLA SỐNG ĐƯỢC:
+1. ĐỒNG HỒ CHẠY TỪ LÚC PHÁT HIỆN, không phải lúc ai đó nhận ticket. Nếu không, người ta sẽ trì hoãn nhận.
+2. QUÁ HẠN PHẢI CÓ HỆ QUẢ TỰ ĐỘNG (chặn release tính năng mới, không chặn hotfix). Không có hệ quả = không có SLA.
+3. NGOẠI LỆ PHẢI QUA HỒ SƠ, không qua tin nhắn. Dùng templates/risk-acceptance-template.md.
+4. ĐO VÀ CÔNG BỐ. "MTTR vá lỗi mức Cao: 11 ngày, mục tiêu 7" — con số công khai tạo áp lực lành mạnh
+   tốt hơn mọi email nhắc nhở.
+```
+
+### 6.2 Triển khai guardrail mà không gây sự cố
+
+> ⚠️ **Bài học đắt nhất của nghề này:** một guardrail chặn nhầm lúc 9h sáng ngày lương gây thiệt hại
+> **lớn hơn** lỗ hổng mà nó chặn. Bạn sẽ mất quyền triển khai control trong 6 tháng sau đó.
+
+**Quy trình 4 bước bắt buộc cho mọi control mới:**
+
+```text
+BƯỚC 1 — QUAN SÁT (2–4 tuần)
+  Bật ở chế độ audit/dry-run. KHÔNG chặn gì. Thu thập: nếu bật chặn thì sẽ chặn bao nhiêu, cái gì.
+  -> Đây là dữ liệu bạn cần để thuyết phục, và để không tự bắn vào chân mình.
+
+BƯỚC 2 — CẢNH BÁO (2–4 tuần)
+  Vẫn cho qua, nhưng cảnh báo cho team sở hữu + cho họ hạn sửa. Kèm HƯỚNG DẪN SỬA CỤ THỂ,
+  không chỉ báo lỗi. Tốt nhất: đưa luôn dòng lệnh/PR mẫu để sửa.
+
+BƯỚC 3 — CHẶN CÓ NGOẠI LỆ (từ đây trở đi)
+  Bật chặn cho service MỚI trước, service CŨ có lộ trình. Danh sách miễn trừ tạm thời có hạn,
+  ghi trong git, tự hết hạn.
+
+BƯỚC 4 — CHẶN TOÀN BỘ
+  Chỉ khi tỉ lệ vi phạm đã gần 0. Nếu bật chặn mà 40% build đỏ, bạn đã làm sai bước 1–3.
+```
+
+**Ba thứ mọi guardrail phải có trước khi bật chặn:**
+
+| Thứ | Vì sao | Kiểm tra bằng câu hỏi |
+|---|---|---|
+| **Kill-switch** | Sự cố lúc 2h sáng, người trực phải tắt được mà không cần bạn | "Người trực có tắt được trong 5 phút không? Có runbook không?" |
+| **Người trực & đường leo thang** | Control là hệ thống production, phải có người chịu trách nhiệm | "Ai nhận cảnh báo khi policy engine chết?" |
+| **Chế độ suy giảm an toàn** | Policy engine chết → cụm ngừng nhận deploy? | "Fail-open hay fail-closed? Quyết định này đã được ai duyệt?" |
+
+> **Fail-open hay fail-closed?** Không có câu trả lời chung — nó phụ thuộc *cái gì hỏng*:
+> · **Fraud engine chết → fail CLOSED** (thà không cho giao dịch còn hơn cho giao dịch gian lận đi qua).
+> · **Admission controller chết → cân nhắc fail-open có cảnh báo** (chặn mọi deploy giữa sự cố có thể
+> ngăn chính bản vá khắc phục sự cố đó). Đây là loại đánh đổi bạn phải **viết ADR** và cho tuyến 2 duyệt,
+> không phải quyết một mình.
+
+### 6.3 Nhịp của tổ chức tài chính — đề xuất đúng lúc thì được duyệt
+
+Ngân hàng có nhịp riêng. Cùng một đề xuất, đúng mùa thì được duyệt, lệch mùa thì chờ một năm.
+
+```text
+ĐÓNG BĂNG THAY ĐỔI (change freeze)
+  Tết Nguyên đán · cuối năm tài chính · mùa quyết toán · các đợt cao điểm giao dịch
+  -> Không đưa thay đổi lớn vào các cửa sổ này. Lập kế hoạch LÙI LẠI trước freeze, không phải sau.
+  -> Mẹo: đặt hạn ngoại lệ TRƯỚC kỳ freeze, đừng để hạn rơi vào giữa freeze.
+
+CHU KỲ KIỂM TOÁN
+  Kiểm toán nội bộ, chứng thực PCI/SWIFT hằng năm, kiểm tra ATTT định kỳ
+  -> Đây là ĐÒN BẨY của bạn: đề xuất gắn với finding hoặc với kỳ chứng thực sắp tới dễ được duyệt gấp bội.
+  -> Biết lịch audit trước 6 tháng = biết trước cửa sổ cơ hội.
+
+MÙA NGÂN SÁCH
+  Thường lập kế hoạch quý 3–4 cho năm sau
+  -> Đề xuất mua công cụ/tăng người phải vào ĐÚNG mùa này. Lệch mùa = chờ 12 tháng.
+  -> Chuẩn bị từ 2 quý trước: thu thập số liệu chứng minh nhu cầu.
+
+CHU KỲ BÁO CÁO
+  Báo cáo rủi ro/tuân thủ hằng quý lên hội đồng
+  -> Chỗ để bảo mật có tiếng nói ở cấp cao. Xin một slot 5 phút đều đặn còn giá trị hơn
+     một bài trình bày hoành tráng mỗi năm một lần.
+```
+
+### 6.4 Ngôn ngữ rủi ro — cấu trúc 5 bước để nói chuyện với lãnh đạo
+
+Đây là kỹ năng có ROI cao nhất ở ngưỡng Senior → Lead, và luyện được.
+
+```text
+❌ CÁCH NÓI KHIẾN BẠN BỊ TỪ CHỐI:
+   "Cluster chưa có admission policy, cần triển khai Kyverno gấp."
+   -> Lãnh đạo nghe: một kỹ sư muốn thêm một công cụ nữa. Không có cơ sở để quyết.
+
+✅ CẤU TRÚC 5 BƯỚC:
+   1. HIỆN TRẠNG (sự thật, không cảm tính)
+      "Hiện bất kỳ ai có quyền deploy đều chạy được container privileged trên node production."
+   2. KỊCH BẢN XẤU (câu chuyện cụ thể, có thật về mặt kỹ thuật)
+      "Một tài khoản dev bị chiếm là đủ để tiếp cận toàn bộ node của kênh số, nơi có dữ liệu khách hàng."
+   3. KHẢ NĂNG × ẢNH HƯỞNG (định lượng hết mức có thể)
+      "Khả năng: trung bình — đã có 2 vụ lộ token trong 12 tháng qua.
+       Ảnh hưởng: nghiêm trọng — dữ liệu KH + gián đoạn dịch vụ + nghĩa vụ báo cáo theo quy định."
+   4. PHƯƠNG ÁN & CHI PHÍ (luôn đưa lựa chọn, đừng đưa tối hậu thư)
+      "Phương án A: policy chặn ở admission, 3 tuần × 1 kỹ sư, đã kiểm thử không ảnh hưởng workload hiện tại.
+       Phương án B: chỉ giám sát + cảnh báo, 1 tuần, nhưng không ngăn được."
+   5. RỦI RO TỒN DƯ NẾU KHÔNG LÀM (đưa quyết định về đúng người)
+      "Nếu chưa làm, rủi ro tồn dư ở mức Cao và cần chủ sở hữu hệ thống ký chấp nhận có thời hạn."
+```
+
+**Ba nguyên tắc đi kèm:**
+
+```text
+1. ĐỪNG BAO GIỜ CHỈ NÓI "KHÔNG".
+   Nói: "Không theo cách này, vì rủi ro X. Có 2 cách khác: A (an toàn, chậm hơn 2 tuần),
+   B (nhanh, nhưng cần chấp nhận rủi ro Y có thời hạn)." Rồi để chủ sở hữu rủi ro CHỌN và KÝ.
+   -> Bạn chuyển từ "người cản trở" thành "người đưa lựa chọn". Khác biệt rất lớn.
+
+2. COI TUYẾN 2 LÀ ĐỒNG MINH, KHÔNG PHẢI RÀO CẢN.
+   Họ chịu trách nhiệm trước cơ quan quản lý. Nếu bạn giúp họ có bằng chứng đẹp và báo cáo dễ,
+   họ sẽ chống lưng cho đề xuất của bạn. Đây là mối quan hệ giá trị nhất trong nghề này.
+
+3. KHÔNG BAO GIỜ GIẤU SỰ CỐ. Ngân hàng tha thứ cho sự cố, không tha thứ cho việc giấu.
+   Giấu một lần là mất toàn bộ uy tín đã xây nhiều năm.
+```
+
+---
+
+## 7. Portfolio: 12 hiện vật chứng minh năng lực
 
 Thăng cấp trong ngành tài chính là quyết định **có bằng chứng**. Hãy chuẩn bị sẵn 12 thứ này
 (che thông tin nhạy cảm để dùng được cả trong phỏng vấn bên ngoài):
@@ -547,7 +809,7 @@ NHÓM LEAD
 
 ---
 
-## 7. Kế hoạch 90 ngày đầu tiên (bắt đầu từ thứ Hai)
+## 8. Kế hoạch 90 ngày đầu tiên (bắt đầu từ thứ Hai)
 
 Nếu bạn chỉ làm được một phần của tài liệu này, hãy làm phần này.
 
@@ -580,7 +842,7 @@ TUẦN 11–13 · Hiển thị
 
 ---
 
-## 8. Chứng chỉ — xếp theo ROI trong ngành tài chính
+## 9. Chứng chỉ — xếp theo ROI trong ngành tài chính
 
 Chứng chỉ **không làm bạn lên cấp**, nhưng nó giúp: qua vòng lọc CV, tạo áp lực học có hệ thống,
 và tăng độ tin cậy trước auditor. Thứ tự đề xuất:
@@ -601,7 +863,7 @@ và tăng độ tin cậy trước auditor. Thứ tự đề xuất:
 
 ---
 
-## 9. Phỏng vấn: câu hỏi thật + cách trả lời
+## 10. Phỏng vấn: câu hỏi thật + cách trả lời
 
 ### Vòng Senior DevSecOps
 | Câu hỏi | Họ đang kiểm tra | Cách trả lời tạo khác biệt |
@@ -624,7 +886,7 @@ và tăng độ tin cậy trước auditor. Thứ tự đề xuất:
 
 ---
 
-## 10. 10 cái bẫy khiến bạn kẹt ở Senior
+## 11. 10 cái bẫy khiến bạn kẹt ở Senior
 
 ```text
 1.  BẬT MỌI SCANNER, FAIL MỌI BUILD.
@@ -662,7 +924,7 @@ và tăng độ tin cậy trước auditor. Thứ tự đề xuất:
 
 ---
 
-## 11. Tự đo tiến độ hằng quý
+## 12. Tự đo tiến độ hằng quý
 
 Mỗi quý, tự trả lời 8 câu này bằng **bằng chứng cụ thể**, không phải cảm giác. Lưu vào git.
 
@@ -691,7 +953,59 @@ Mỗi quý, tự trả lời 8 câu này bằng **bằng chứng cụ thể**, k
 
 ---
 
-## 12. Tài nguyên học
+## 13. Từ điển Anh–Việt (để tra cứu & phỏng vấn)
+
+Tài liệu này viết bằng tiếng Việt để bạn *hiểu*. Nhưng khi **tra cứu tài liệu, thi chứng chỉ và đi phỏng vấn**
+(nhất là với ngân hàng nước ngoài hoặc công ty gia công), bạn cần đúng thuật ngữ tiếng Anh.
+
+| Tiếng Việt (dùng trong tài liệu này) | Tiếng Anh | Ghi chú khi dùng |
+|---|---|---|
+| Ba tuyến phòng vệ | Three Lines of Defense | Nói đúng tên tiếng Anh trong phỏng vấn ngân hàng |
+| Đối soát | Reconciliation | Google từ này để đọc tài liệu kỹ thuật |
+| Bút toán kép | Double-entry bookkeeping | |
+| Chốt ngày / cuối ngày | Cut-off / End-of-Day (EOD) | |
+| Bù trừ / Quyết toán | Clearing / Settlement | Hai khái niệm khác nhau, đừng gộp |
+| Bốn mắt / người làm–người duyệt | Four-eyes principle / Maker-Checker | |
+| Phân tách nhiệm vụ | Segregation of Duties (SoD) | Auditor dùng từ này liên tục |
+| Chống chối bỏ | Non-repudiation | |
+| Rủi ro tồn dư | Residual risk | |
+| Chấp nhận rủi ro | Risk acceptance | |
+| Chủ sở hữu rủi ro | Risk owner | Người ký, không phải người làm |
+| Phát hiện của kiểm toán | Audit finding | |
+| Bằng chứng tuân thủ | Compliance evidence / Audit evidence | |
+| Đóng băng thay đổi | Change freeze / Change blackout | |
+| Hội đồng thay đổi | Change Advisory Board (CAB) | |
+| Con đường vàng | Golden path / Paved road | Từ "paved road" phổ biến hơn ở công ty Mỹ |
+| Rào chắn tự động | Guardrail | |
+| Kiểm soát nạp vào cụm | Admission control | |
+| Chính sách dạng mã | Policy as Code | |
+| Bằng chứng dạng mã | Evidence as Code / Compliance as Code | |
+| Danh mục thành phần phần mềm | SBOM (Software Bill of Materials) | |
+| Khả năng bị chạm tới | Reachability | Yếu tố giảm tải lỗ hổng nhiều nhất |
+| Định danh khối lượng công việc | Workload identity | |
+| Quyền cấp theo nhu cầu, có hạn | Just-in-Time (JIT) access | |
+| Quản lý truy cập đặc quyền | Privileged Access Management (PAM) | |
+| Vùng dữ liệu thẻ | Cardholder Data Environment (CDE) | Thuật ngữ PCI, phải thuộc |
+| Mã hóa thay thế bằng token | Tokenization | Cách chính để thu hẹp phạm vi PCI |
+| Thu hẹp phạm vi | Scope reduction | Từ khóa vàng khi nói chuyện với QSA |
+| Đánh giá tác động xử lý dữ liệu | DPIA (Data Protection Impact Assessment) | |
+| Kiểm thử theo kịch bản đe dọa | Threat-Led Penetration Testing (TLPT) | Thuật ngữ DORA |
+| Mô hình hóa mối đe dọa | Threat modeling | |
+| Ranh giới tin cậy | Trust boundary | |
+| Bán kính ảnh hưởng | Blast radius | |
+| Khóa idempotency | Idempotency key | |
+| Công tắc người chết | Dead man's switch | Cảnh báo khi job *không* chạy |
+| Rà soát quyền định kỳ | Access recertification / User access review | Auditor rất hay hỏi |
+| Hồ sơ nhà cung cấp ICT | Register of Information (RoI) | Thuật ngữ DORA |
+| Chuyên gia đánh giá PCI | QSA (Qualified Security Assessor) / ISA (Internal) | |
+
+> **Mẹo phỏng vấn:** khi trả lời, dùng thuật ngữ tiếng Anh cho *khái niệm chuẩn* (SoD, CDE, residual risk)
+> nhưng giải thích bằng tiếng Việt cho *bối cảnh cụ thể*. Người phỏng vấn nhận ra ngay bạn đọc tài liệu gốc,
+> không phải học qua tóm tắt.
+
+---
+
+## 14. Tài nguyên học
 
 **Nghiệp vụ tài chính (đọc trước, đây là phần bạn thiếu):**
 - Tài liệu công khai của **NAPAS** về luồng chuyển mạch & đối soát; tài liệu **ISO 20022** (mục Business Model).
@@ -716,6 +1030,22 @@ Mỗi quý, tự trả lời 8 câu này bằng **bằng chứng cụ thể**, k
 - *Staff Engineer* — Will Larson · *The Manager's Path* — Camille Fournier (chương Tech Lead).
 - *How to Measure Anything in Cybersecurity Risk* — Hubbard & Seiersen — **đọc quyển này nếu muốn lên Lead**: dạy cách nói về rủi ro bằng con số thay vì màu đỏ/vàng/xanh.
 - *The Phoenix Project* / *The Unicorn Project* — hiểu tâm lý tổ chức khi bảo mật va vào tốc độ.
+
+---
+
+## Mẫu văn bản đi kèm
+
+Tài liệu này nhắc nhiều lần tới các văn bản bạn "phải viết được". Ba mẫu dưới đây có sẵn trong repo,
+kèm **ví dụ đã điền cho bối cảnh ngân hàng** — copy về dùng ngay:
+
+| Mẫu | Dùng khi | Có gì bên trong |
+|---|---|---|
+| [`templates/threat-model-template.md`](./templates/threat-model-template.md) | Trước khi xây hệ thống có luồng tiền / kênh mới / tích hợp đối tác | Quy trình 5 bước · STRIDE + 5 mối đe dọa đặc thù tài chính · **ví dụ đã điền: API chuyển tiền nhanh 24/7** với DFD, ranh giới tin cậy và 10 mối đe dọa có control |
+| [`templates/risk-acceptance-template.md`](./templates/risk-acceptance-template.md) | Khi không thể sửa ngay nhưng vẫn phải đi tiếp | 4 nguyên tắc bất di bất dịch · khi nào **không** được dùng · **ví dụ đã điền** · cách vận hành sổ ngoại lệ (việc của Lead) |
+| [`templates/adr-template.md`](./templates/adr-template.md) | Mọi quyết định kỹ thuật khó đảo ngược | Context → Options → Decision → Trade-off & Consequence |
+
+> Ba loại văn bản này chính là **bằng chứng năng lực** ở ngưỡng Senior → Lead. Kỹ thuật thì khó chứng minh
+> sau khi rời tổ chức; một threat model tốt và một hồ sơ ngoại lệ viết chuẩn thì mang đi phỏng vấn được.
 
 ---
 
