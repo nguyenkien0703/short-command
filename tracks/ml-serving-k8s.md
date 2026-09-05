@@ -1,4 +1,9 @@
-# ML Serving trên Kubernetes (KServe + GPU) — thế mạnh khác biệt của bạn
+# ML Serving trên Kubernetes (KServe + GPU)
+
+> ⚠️ **Tài liệu tham chiếu — không nằm trong lộ trình hiện tại (từ 09/2026).** Trục chính nay là
+> **DevSecOps**, trục hai là **SRE** — xem [tracks/README.md](./README.md).
+> Vẫn dùng được khi bạn phải **vận hành/bảo mật** một hệ serving model của team khác: vào với vai
+> SRE (capacity GPU, autoscale, rollback) hoặc DevSecOps (admission, image ký, network policy).
 
 > Đây là nơi nền DevOps/K8s của bạn tạo giá trị mà Data Scientist thường không làm được:
 > đưa model lên production **đáng tin, tự co giãn, tối ưu GPU**. File này đi sâu kỹ thuật với manifest thật.

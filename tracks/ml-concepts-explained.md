@@ -1,5 +1,9 @@
 # Phân biệt các khái niệm ML/AI hay lẫn lộn (cho người đến từ infra/DevOps)
 
+> ℹ️ **Vẫn hữu ích dù đã đổi trục sang DevSecOps → SRE** (xem [tracks/README.md](./README.md)):
+> đây là vốn khái niệm tối thiểu để **nói chuyện, vận hành và bảo mật** hệ AI của team khác mà không
+> phải trở thành MLOps. Đọc một lần là đủ dùng lâu dài.
+
 > Người làm hạ tầng thường bị rối vì các thuật ngữ nghe giống nhau: train, fine-tune, training data,
 > inference, model, weights... File này phân biệt rõ từng cặp, kèm ví dụ đời thường. Không cần biết toán.
 

@@ -1,5 +1,9 @@
 # Fine-tuning & LoRA — chi tiết kỹ thuật (mức 3 của tùy biến LLM)
 
+> ⚠️ **Tài liệu tham chiếu — KHÔNG nằm trong lộ trình hiện tại (từ 09/2026).** Trục chính nay là
+> **DevSecOps**, trục hai là **SRE** — xem [tracks/README.md](./README.md).
+> Đây là phần chuyên sâu nhất về ML trong repo; **không cần đọc** trừ khi công việc thật yêu cầu.
+
 > Hoàn thiện bộ ba tùy biến LLM: **Prompt → RAG → Fine-tune**. File này giải thích fine-tuning là gì,
 > **khi nào NÊN & khi nào KHÔNG**, các kỹ thuật (full FT vs LoRA/QLoRA), hạ tầng GPU, pipeline MLOps,
 > và cách vận hành nhiều adapter ở production. Góc nhìn Platform Engineer, không phải nhà nghiên cứu.

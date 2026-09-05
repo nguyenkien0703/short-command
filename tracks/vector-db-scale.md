@@ -1,5 +1,9 @@
 # Vector Database ở quy mô lớn — HNSW, Sharding, Hybrid, Latency
 
+> ⚠️ **Tài liệu tham chiếu — KHÔNG nằm trong lộ trình hiện tại (từ 09/2026).** Trục chính nay là
+> **DevSecOps**, trục hai là **SRE** — xem [tracks/README.md](./README.md).
+> Đọc khi bạn thực sự phải **vận hành một vector DB ở production** (vai SRE: capacity, latency, replication).
+
 > Vector search là trái tim của RAG & semantic search. File này đi sâu **cách hoạt động của ANN index
 > (HNSW/IVF), tuning tham số, sharding/replication, hybrid search, và đánh đổi latency ↔ recall ↔ cost**
 > khi lên hàng chục-hàng trăm triệu vector. Góc nhìn vận hành hạ tầng.
