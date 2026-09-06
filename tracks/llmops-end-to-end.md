@@ -1,5 +1,11 @@
 # LLMOps End-to-End — RAG + Serving vLLM + Eval + Guardrails (chi tiết kỹ thuật)
 
+> ⚠️ **Tài liệu tham chiếu — không nằm trong lộ trình hiện tại (từ 09/2026).** Trục chính nay là
+> **DevSecOps**, trục hai là **SRE** — xem [tracks/README.md](./README.md).
+> Phần còn giá trị trực tiếp với bạn: **Guardrails & bảo mật ứng dụng LLM** — đọc kèm
+> [devsecops.md §5.7](./devsecops.md) (OWASP Top 10 for LLM 2025, Agentic 2026, rủi ro MCP).
+> Các phần RAG/serving/eval chỉ đọc khi công việc thật yêu cầu.
+
 > Hướng dẫn kỹ thuật để xây & vận hành ứng dụng LLM production. Bốn trụ cột:
 > **RAG** (đưa kiến thức riêng vào LLM), **Serving** (self-host LLM hiệu quả), **Eval** (đo chất lượng),
 > **Guardrails** (an toàn). Kèm kiến trúc, config, và quyết định kỹ thuật.

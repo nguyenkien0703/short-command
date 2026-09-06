@@ -1,5 +1,11 @@
 # Lộ trình: DevOps → AI Platform Engineer (MLOps + SRE + DevSecOps)
 
+> 🗄️ **LỘ TRÌNH CŨ — đã được thay thế (09/2026).** Lộ trình đang theo là **DevSecOps (trục chính) →
+> SRE (bổ trợ)**: xem [tracks/README.md](./README.md).
+> Giữ file này làm **lịch sử quyết định**: nó ghi lại vì sao từng chọn MLOps làm lõi, và phần
+> "LỚP 3: DevSecOps/MLSecOps" ở đây chính là thứ nay được nâng lên thành trục chính.
+> Đừng dùng file này để lên kế hoạch học nữa.
+
 > Lộ trình phân lớp cho người đang làm **DevOps cho dự án AI**: lấy **MLOps làm lõi**, bồi thêm
 > **SRE** (độ tin cậy) và **DevSecOps** (bảo mật), để thành **AI/ML Platform Engineer** — hồ sơ IC/Architect hiếm.
 > Đọc kèm: [mlops.md](./mlops.md) · [sre.md](./sre.md) · [devsecops.md](./devsecops.md)
