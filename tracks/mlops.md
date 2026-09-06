@@ -1,4 +1,8 @@
-# MLOps — Vận hành hệ thống ML/AI (hướng gần bạn nhất)
+# MLOps — Vận hành hệ thống ML/AI
+
+> ⚠️ **Tài liệu tham chiếu — KHÔNG nằm trong lộ trình hiện tại (từ 09/2026).**
+> Định hướng đã đổi sang **DevSecOps (trục chính) → SRE (bổ trợ)** — xem [tracks/README.md](./README.md).
+> Giữ file này để hiểu bức tranh MLOps khi phải làm việc với team AI, **không phải để đi theo**.
 
 > MLOps = áp dụng tư duy DevOps cho **vòng đời Machine Learning**. Nhưng ML khác phần mềm truyền thống
 > ở chỗ: sản phẩm không chỉ là **code** mà là **code + data + model** — cả ba đều thay đổi và đều phải versioned,
