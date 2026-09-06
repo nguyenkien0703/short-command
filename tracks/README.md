@@ -23,6 +23,7 @@ experiment) — bỏ ra là bỏ đúng thứ *ít cộng hưởng nhất* với
 
 **Đang theo đuổi**
 - **[devsecops.md](./devsecops.md)** — 🎯 trục chính: mindset shift-left, bản đồ security theo từng bước pipeline, trụ cột kỹ năng, lộ trình.
+  - ↳ **Sự nghiệp:** [`../career-devsecops-finance.md`](../career-devsecops-finance.md) — Senior → Lead DevSecOps trong **ngành tài chính**: nghiệp vụ ngân hàng, tuân thủ NHNN/PCI/SWIFT, kế hoạch theo quý. *(File `devsecops.md` là kỹ thuật nền; file kia là đường đi nghề nghiệp.)*
 - **[sre.md](./sre.md)** — 🥈 trục hai: SLI/SLO/error budget, incident & postmortem, chaos, capacity.
 
 **Tham chiếu (không nằm trong lộ trình — đọc khi công việc cần)**

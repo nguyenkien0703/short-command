@@ -4,6 +4,10 @@
 > Cốt lõi: bảo mật là **trách nhiệm của mọi người + được tự động hóa**, không phải cổng gác của 1 team riêng.
 >
 > *Cập nhật 09/2026 — đây là trục chính trong [tracks/README.md](./README.md). Trục bổ trợ: [sre.md](./sre.md).*
+>
+> 🎯 **Muốn lộ trình SỰ NGHIỆP Senior → Lead DevSecOps (ngành tài chính/ngân hàng)?**
+> Xem [`career-devsecops-finance.md`](../career-devsecops-finance.md) — kế hoạch theo quý, domain nghiệp vụ
+> ngân hàng, bản đồ tuân thủ NHNN/PCI/SWIFT, portfolio và câu hỏi phỏng vấn. File này là phần **kỹ thuật nền**.
 
 ## 1. Mindset — shift-left, và "paved road" thay vì cổng chặn
 

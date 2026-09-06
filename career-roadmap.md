@@ -3,10 +3,15 @@
 > Lộ trình phát triển sự nghiệp từ Middle DevOps đi lên, **nhấn mạnh nhánh IC/Architect (kỹ thuật sâu)**,
 > kèm bản đồ nhánh Management để bạn chọn có chủ đích về sau.
 > Đọc kèm: [`devops-fast-track.md`](./devops-fast-track.md) (kỹ năng kỹ thuật) · [`k8s-operations-playbook.md`](./k8s-operations-playbook.md) · [`cloud/aws/`](./cloud/aws/)
+>
+> 🎯 **Đã chọn nhánh DevSecOps trong ngành tài chính?** File này là bản đồ *chung*. Lộ trình *chi tiết*
+> **Senior DevSecOps → Lead DevSecOps** (có mốc theo quý, deliverable, và domain nghiệp vụ ngân hàng +
+> tuân thủ NHNN/PCI/SWIFT) nằm ở **[`career-devsecops-finance.md`](./career-devsecops-finance.md)**.
 
 ## 📑 Mục lục
 - [0. Nguyên lý cốt lõi](#0-nguyên-lý-cốt-lõi-mỗi-cấp--đổi-thứ-bạn-tối-ưu)
 - [1. Bản đồ hai nhánh: IC vs Management](#1-bản-đồ-hai-nhánh-ic-vs-management)
+  - [1.1 Ánh xạ sang chức danh DevSecOps](#11-ánh-xạ-sang-chức-danh-devsecops-nếu-đây-là-nhánh-của-bạn)
 - [2. Nhánh IC/Architect — đi sâu](#2-nhánh-icarchitect--đi-sâu-trọng-tâm)
 - [3. Kỹ năng ra quyết định kiến trúc](#3-kỹ-năng-ra-quyết-định-kiến-trúc-lõi-của-architect)
 - [4. Skill Matrix theo cấp (tự chấm điểm)](#4-skill-matrix-theo-cấp-tự-chấm-điểm)
@@ -53,6 +58,20 @@ Principal -> tối ưu: KẾT QUẢ KỸ THUẬT CẤP TỔ CHỨC (định hìn
 **Sự thật quan trọng:** Manager KHÔNG phải "cấp trên" của Staff Engineer — nó là **nghề khác**, cùng thang ảnh hưởng. IC track lên rất cao (Principal/Distinguished có tiếng nói ngang Director). Bạn chọn IC = đúng nếu bạn **yêu giải quyết vấn đề kỹ thuật khó** và muốn giữ chiều sâu.
 
 > Bạn đang chọn IC/Architect → phần 2, 3, 4 là trọng tâm. Nhưng đọc phần 6 để biết nhánh kia, vì Staff+ vẫn cần kỹ năng "lãnh đạo không quyền lực".
+
+### 1.1 Ánh xạ sang chức danh DevSecOps (nếu đây là nhánh của bạn)
+
+Thang cấp chung ở trên ánh xạ sang chức danh DevSecOps thực tế như sau:
+
+| Cấp chung | Chức danh DevSecOps | Điều thực sự thay đổi ở ngưỡng này |
+|---|---|---|
+| Senior | **Senior DevSecOps Engineer** | Từ *chạy công cụ* → *thiết kế hệ thống kiểm soát* cho cả một domain |
+| Staff / Tech Lead | **Lead DevSecOps / DevSecOps Manager** | Từ *tôi làm được* → *tổ chức làm được mà không cần tôi* (chuẩn, golden path, champion) |
+| Principal / Architect | **Security Architect / Head of Platform Security** | Từ *chương trình kỹ thuật* → *quản trị rủi ro cấp tổ chức* |
+
+Trong ngành **tài chính**, ngưỡng Senior → Lead có thêm ba việc mà nơi khác không có: đại diện kỹ thuật
+trước kiểm toán/thanh tra, đánh giá bảo mật bên thứ ba (vendor core banking/eKYC), và ngồi trong hội đồng
+thay đổi & rủi ro. → Chi tiết đầy đủ: **[`career-devsecops-finance.md`](./career-devsecops-finance.md)**.
 
 ---
 

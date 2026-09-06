@@ -18,6 +18,7 @@
 | Học AWS để thi cert (SAA/SAP/SysOps/DevOps) | [cloud/aws/](./cloud/aws/README.md) |
 | Định hình hướng chuyên môn hoá (DevSecOps → SRE) | [tracks/](./tracks/README.md) |
 | Phát triển sự nghiệp lên Architect/Lead | [career-roadmap.md](./career-roadmap.md) |
+| Đi **Senior → Lead DevSecOps** trong ngành **tài chính/ngân hàng** | [career-devsecops-finance.md](./career-devsecops-finance.md) |
 | Luyện viết ADR / design doc (trình sếp) | [templates/](./templates/README.md) |
 
 ---
@@ -57,10 +58,11 @@
 
 ### 📈 Sự nghiệp & kỹ năng
 - **[career-roadmap.md](./career-roadmap.md)** — Middle → Senior → Staff/Architect (IC track) → Leadership: skill matrix, checklist lên cấp, kế hoạch 12 tháng, ra quyết định kiến trúc.
+- **[career-devsecops-finance.md](./career-devsecops-finance.md)** — 🔐 lộ trình chi tiết **Senior → Lead DevSecOps trong ngành tài chính**: bản đồ hệ thống ngân hàng, luồng tiền 7 chặng & rủi ro từng chặng, 20 khái niệm nghiệp vụ bắt buộc, bản đồ tuân thủ (TT 09/2020, TT 50/2024, QĐ 2345, Luật BVDLCN 2025, PCI DSS 4.0.1, SWIFT CSCF v2026, DORA), cách dịch điều khoản → control → bằng chứng tự động, kế hoạch theo quý, portfolio 12 hiện vật, câu hỏi phỏng vấn.
 - **[devops-fast-track.md](./devops-fast-track.md)** — kế hoạch 90 ngày lên tay nhanh: mental models + 11 break-and-fix lab + capstone.
 
 ### 📝 Templates (luyện viết & trình sếp)
-- **[templates/](./templates/README.md)** — [adr-template](./templates/adr-template.md) · [design-doc-template](./templates/design-doc-template.md) · [ví dụ ADR đã điền](./templates/examples/ADR-0001-transit-gateway-vs-peering.md).
+- **[templates/](./templates/README.md)** — [adr-template](./templates/adr-template.md) · [design-doc-template](./templates/design-doc-template.md) · [threat-model-template](./templates/threat-model-template.md) (STRIDE + ví dụ đã điền cho API chuyển tiền) · [risk-acceptance-template](./templates/risk-acceptance-template.md) (hồ sơ ngoại lệ có hạn) · [ví dụ ADR đã điền](./templates/examples/ADR-0001-transit-gateway-vs-peering.md).
 
 ---
 
