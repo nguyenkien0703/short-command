@@ -14,6 +14,7 @@
 | Tra nhanh 1 câu lệnh (docker/k8s/git/aws/network...) | [cheatsheet.md](./cheatsheet.md) |
 | Dùng thành thạo Claude Code (command/hook/MCP/subagent) | [claude-code-guide.md](./claude-code-guide.md) |
 | Vận hành / xử lý sự cố cluster K8s | [k8s-operations-playbook.md](./k8s-operations-playbook.md) |
+| **Ôn thi chứng chỉ Kubernetes (CKA/CKS)** | [certs/k8s/](./certs/k8s/README.md) |
 | Học AWS để thi cert (SAA/SAP/SysOps/DevOps) | [cloud/aws/](./cloud/aws/README.md) |
 | Định hình hướng đi AI (MLOps/SRE/DevSecOps) | [tracks/](./tracks/README.md) |
 | Phát triển sự nghiệp lên Architect/Lead | [career-roadmap.md](./career-roadmap.md) |
@@ -31,6 +32,16 @@
 ### ☸️ Kubernetes — vận hành & production
 - **[k8s-operations-playbook.md](./k8s-operations-playbook.md)** — playbook sự cố (Pod/Node/Network/Storage/Control-plane/Scaling) theo cấu trúc *triệu chứng → chẩn đoán → xử lý → root cause → phòng ngừa*; backup/DR; reliability; observability; security; lộ trình DevOps Lead.
 - **[k8s-production-templates.md](./k8s-production-templates.md)** — YAML production-ready (Deployment/PDB/HPA/NetworkPolicy/Quota/RBAC) + runbook từng bước (etcd/Velero restore, bảo trì node, rollback).
+
+### 🎫 Chứng chỉ Kubernetes — CKA & CKS
+- **[certs/k8s/](./certs/k8s/README.md)** — bộ tài liệu ôn thi bám sát curriculum chính chủ CNCF
+  (`CKA v1.35` · `CKS v1.34`), cho người **đã làm K8s thật**:
+  - [exam-day-playbook](./certs/k8s/exam-day-playbook.md) — chiến thuật phòng thi: check-in, alias/vim setup 60s, quản lý thời gian, copy-paste, 10 sai lầm mất điểm oan
+  - [study-plan](./certs/k8s/study-plan.md) — lộ trình 12 tuần CKA → 8 tuần CKS, mốc kiểm tra theo tuần
+  - [lab-2-cum-rke2-calico](./certs/k8s/lab-2-cum-rke2-calico.md) — **đã có cụm thật?** bản đồ domain↔cụm, bảng dịch RKE2 ↔ kubeadm, lộ trình tuần gắn sẵn tên cụm
+  - [resources](./certs/k8s/resources.md) — nguồn học VN (devops.vn, Viblo, devopsviet) + quốc tế, mẹo săn voucher
+  - **CKA**: [00-exam-guide](./certs/k8s/cka/00-exam-guide.md) · [cluster-architecture 25%](./certs/k8s/cka/01-cluster-architecture.md) · [workloads&scheduling 15%](./certs/k8s/cka/02-workloads-scheduling.md) · [services&networking 20%](./certs/k8s/cka/03-services-networking.md) · [storage 10%](./certs/k8s/cka/04-storage.md) · [troubleshooting 30%](./certs/k8s/cka/05-troubleshooting.md) · [30 bài luyện](./certs/k8s/cka/practice-questions.md)
+  - **CKS**: [00-exam-guide](./certs/k8s/cks/00-exam-guide.md) · [cluster-setup](./certs/k8s/cks/01-cluster-setup.md) · [cluster-hardening](./certs/k8s/cks/02-cluster-hardening.md) · [system-hardening](./certs/k8s/cks/03-system-hardening.md) · [microservice-vuln](./certs/k8s/cks/04-minimize-microservice-vulnerabilities.md) · [supply-chain](./certs/k8s/cks/05-supply-chain-security.md) · [runtime-security](./certs/k8s/cks/06-monitoring-logging-runtime.md) · [25 bài luyện](./certs/k8s/cks/practice-questions.md)
 
 ### ☁️ Cloud — AWS (ôn cert)
 - **[cloud/aws/](./cloud/aws/README.md)** — giáo trình AWS đầy đủ:
@@ -60,6 +71,10 @@
 ```text
 Nền DevOps vững:      cheatsheet -> k8s-operations-playbook -> k8s-production-templates
                       -> devops-fast-track (lab tự phá & sửa)
+
+Chứng chỉ K8s:        certs/k8s/exam-day-playbook -> certs/k8s/study-plan
+                      -> cka/00 -> 01..05 -> cka/practice-questions   (thi CKA)
+                      -> cks/00 -> 01..06 -> cks/practice-questions   (thi CKS)
 
 Kiến trúc Cloud/Cert: cloud/aws (00 -> 07) -> labs/cidr -> practice-questions -> cert-roadmap
 
