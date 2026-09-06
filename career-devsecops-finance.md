@@ -625,6 +625,24 @@ CHECKLIST SẴN SÀNG LÊN LEAD:
   [ ] Bạn đã xử lý ít nhất 1 xung đột Dev↔Security ra kết quả cả hai bên chấp nhận.
 ```
 
+### Bạn đang xây cái gì? — cấu trúc một đội DevSecOps trưởng thành
+
+Biết đích đến giúp bạn xếp ưu tiên. Đây là 5 mảng một đội DevSecOps ngân hàng trưởng thành phải phủ —
+ở tổ chức nhỏ một người kiêm nhiều mảng, nhưng **mảng nào không có người thì đó là khoảng trống rủi ro**:
+
+```text
+Lead DevSecOps
+ ├─ Pipeline & chuỗi cung ứng   : golden pipeline, SBOM, ký artifact, quản trị công cụ quét
+ ├─ Cloud & container security  : policy-as-code, hardening, phân vùng, posture (CSPM)
+ ├─ Định danh & bí mật          : IAM/PAM/Vault, SoD, rà soát quyền định kỳ
+ ├─ Phát hiện & phản ứng        : phối hợp SOC — use case, runbook, diễn tập
+ └─ Tự động hóa tuân thủ        : ánh xạ control, thu thập bằng chứng, dashboard tuân thủ
+Vệ tinh: Security Champions trong từng team dev (bạn đào tạo & dẫn dắt, KHÔNG quản lý trực tiếp)
+```
+
+> Khi bạn tự chấm "mình đang phủ mảng nào, mảng nào trống", bạn có ngay nội dung cho bản đề xuất
+> tăng người hoặc cho lộ trình 18 tháng — bằng ngôn ngữ mà lãnh đạo hiểu.
+
 ---
 
 ## 6. Vận hành thực chiến — bốn thứ tài liệu khác không nói
@@ -807,6 +825,23 @@ NHÓM LEAD
 > Lưu tất cả vào một repo riêng tư có cấu trúc rõ ràng. Khi đến kỳ đánh giá hoặc phỏng vấn,
 > bạn không phải nhớ lại — bạn chỉ mở ra. **Người có hồ sơ luôn thắng người có trí nhớ tốt.**
 
+**Công thức viết một dòng thành tích** (dùng cho CV, hồ sơ thăng cấp, và câu trả lời phỏng vấn):
+
+```text
+[Hành động kỹ thuật]  →  [thay đổi ĐO ĐƯỢC]  →  [ý nghĩa rủi ro / tiền / tuân thủ]
+                                                          ▲
+                            vế thứ ba là vế duy nhất lãnh đạo thật sự nghe
+```
+
+> ❌ "Triển khai Trivy và Kyverno cho cluster."
+> ✅ "Chuẩn hóa quét image + admission control cho 42 dịch vụ: **100% workload production chạy image đã ký
+> và đã quét**, loại bỏ hoàn toàn lớp rủi ro 'image không rõ nguồn gốc' — **đóng finding kiểm toán
+> A-2025-17 trước hạn 6 tuần**."
+
+Câu thứ hai và câu thứ nhất mô tả **cùng một công việc**. Chỉ câu thứ hai đưa bạn lên cấp.
+Ở ngân hàng, thăng cấp là một **hồ sơ được chuẩn bị trước 2 quý**, không phải một cuộc trò chuyện —
+nên hãy viết dòng thành tích **ngay khi làm xong**, đừng đợi tới kỳ đánh giá mới nhớ lại.
+
 ---
 
 ## 8. Kế hoạch 90 ngày đầu tiên (bắt đầu từ thứ Hai)
@@ -838,6 +873,35 @@ TUẦN 11–13 · Hiển thị
   [ ] Xin phản hồi từ sếp trực tiếp: "Để em được xem là Senior/Lead, còn thiếu gì ạ?"
       Ghi lại nguyên văn. Đó là bản đồ đường đi CHÍNH XÁC cho tổ chức của bạn — quý hơn mọi tài liệu chung.
   [ ] Bắt đầu bảng "điều khoản → control", điền 10 dòng đầu.
+```
+
+### Biến thể: nếu bạn MỚI vào một tổ chức tài chính
+
+Kế hoạch trên dành cho người **đã ở trong** tổ chức. Nếu bạn vừa chuyển việc, thứ tự khác hẳn —
+sai lầm chết người nhất của người mới là *sửa trước khi hiểu*:
+
+```text
+NGÀY 1–30 — HIỂU, TUYỆT ĐỐI ĐỪNG SỬA
+  [ ] Vẽ được sơ đồ dòng tiền + danh mục hệ thống trọng yếu. HỎI, đừng đoán.
+  [ ] Biết hệ thống nào thuộc phạm vi PCI (CDE) / SWIFT / chứa dữ liệu cá nhân / ở cấp độ mấy.
+  [ ] Đọc: chính sách ATTT nội bộ, báo cáo kiểm toán gần nhất, danh sách finding đang mở, sổ rủi ro,
+      sổ ngoại lệ. -> Đây là bản đồ CHÍNH XÁC về việc tổ chức đang đau ở đâu.
+  [ ] Gặp 1-1: trưởng nhóm dev chính, phòng ATTT (tuyến 2), SOC, vận hành, kiểm toán nội bộ, đội fraud.
+  [ ] Ghi lại "10 điều khiến tôi ngạc nhiên". Sau 3 tháng bạn sẽ quen và MẤT VĨNH VIỄN góc nhìn này —
+      đây là tài sản chỉ người mới mới có.
+
+NGÀY 31–60 — MỘT THẮNG LỢI NHỎ, CHẮC CHẮN
+  [ ] Chọn việc thỏa cả 3: rủi ro rõ ràng + ít gây ma sát + đo được.
+      Gợi ý tốt: bật secret scanning ở chế độ cảnh báo · che dữ liệu ở môi trường non-prod ·
+      đóng một finding đã mở lâu ngày mà không ai nhận.
+  [ ] Làm xong, đo, báo cáo ngắn có số liệu.
+  [ ] ⚠️ TUYỆT ĐỐI KHÔNG bật chế độ CHẶN ở bất kỳ cổng nào trong 60 ngày đầu.
+      Bạn chưa đủ vốn tín nhiệm để chịu một sự cố do mình gây ra.
+
+NGÀY 61–90 — ĐỀ XUẤT HƯỚNG ĐI
+  [ ] Trình 1 tài liệu: hiện trạng rủi ro + 3 ưu tiên 12 tháng + cách đo.
+  [ ] Có 1 người ủng hộ ở tuyến 2 và 1 trưởng nhóm dev sẵn sàng làm thí điểm.
+  [ ] Khởi động chương trình dài hạn đầu tiên.
 ```
 
 ---
@@ -950,6 +1014,21 @@ Mỗi quý, tự trả lời 8 câu này bằng **bằng chứng cụ thể**, k
 | % bằng chứng kiểm toán sinh tự động | Trưởng thành tuân thủ | ↑ |
 | Số phát hiện lặp lại giữa 2 kỳ kiểm toán | Có sửa gốc rễ không | ↓ về 0 |
 | Số người bạn kèm được lên cấp | Sẵn sàng làm Lead | ↑ |
+
+**Bộ chỉ số đầy đủ khi bạn làm Lead** (7 nhóm — dùng để quản trị và để báo cáo lên hội đồng):
+
+| Nhóm | Chỉ số | Vì sao lãnh đạo quan tâm |
+|---|---|---|
+| **Bao phủ** | % dịch vụ có đủ cổng kiểm tra · % workload production chạy image đã ký · % team trên golden path | Trả lời "ta kiểm soát được bao nhiêu phần?" |
+| **Tốc độ xử lý** | MTTR lỗ hổng theo mức so với SLA · tuổi trung bình lỗ hổng tồn · số lỗ hổng quá hạn | Ánh xạ thẳng vào yêu cầu quản lý lỗ hổng của PCI và vào audit finding |
+| **Chất lượng** | Tỉ lệ false positive · số lỗ hổng lọt ra production · số lỗ hổng **lặp lại cùng loại** | Chống bệnh "cài công cụ rồi bỏ đó"; lặp lại = đào tạo chưa hiệu quả |
+| **Ma sát với dev** | Thời gian build tăng thêm · số build bị chặn nhầm · mức hài lòng của dev | **Bảo mật làm chậm dev = bảo mật sẽ bị vượt mặt.** Rất ít Lead đo cái này — đo được là lợi thế |
+| **Tuân thủ** | Finding mở/đóng đúng hạn · số control tự sinh bằng chứng · số ngoại lệ đang mở & **quá hạn** | Ngôn ngữ của Ban điều hành và cơ quan quản lý |
+| **Sẵn sàng ứng cứu** | MTTD/MTTR sự cố bảo mật · số kịch bản đã diễn tập · thời gian trả lời "ai bị ảnh hưởng bởi CVE X" | Chứng minh năng lực **chống chịu**, không chỉ phòng ngừa |
+| **Quyền hạn** | Số tài khoản quyền cao · số phiên khẩn cấp (break-glass)/tháng và tỉ lệ đã hậu kiểm · số quyền bị cắt sau rà soát | Rủi ro nội gián — mối lo lớn nhất của ngành tài chính |
+
+> **Quy tắc trình bày:** mỗi chỉ số phải kèm **ngưỡng và xu hướng**.
+> "85%" là con số vô nghĩa. "85%, mục tiêu 95%, quý trước 60%" mới là thông tin để ra quyết định.
 
 ---
 
